@@ -3,9 +3,19 @@
   command = ""
 
 [[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0, must-revalidate"
+
+[[headers]]
   for = "/*.html"
   [headers.values]
-    Cache-Control = "no-store"
+    Cache-Control = "no-store, max-age=0, must-revalidate"
 
 [[headers]]
   for = "/*.glb"
@@ -17,10 +27,10 @@
   for = "/*.js"
   [headers.values]
     Content-Type = "text/javascript; charset=utf-8"
-    Cache-Control = "no-cache"
+    Cache-Control = "no-store, max-age=0, must-revalidate"
 
 [[headers]]
   for = "/*.css"
   [headers.values]
     Content-Type = "text/css; charset=utf-8"
-    Cache-Control = "no-cache"
+    Cache-Control = "no-store, max-age=0, must-revalidate"
