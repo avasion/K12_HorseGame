@@ -47,9 +47,12 @@ const GRASS_MAX_HEIGHT = 0.52;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const SINGLE_GRASS_GEOMETRY_MAX_HEIGHT = 1.0;
 const STREAM_WIDTH = 5.2;
-const PERIMETER_TREE_COUNT = 118;
+const PERIMETER_TREE_COUNT = 54;
 const PERIMETER_RAIL_COUNT = 72;
 const GRASS_COLOR_PALETTE = [0x4f9900, 0x82c23a, 0xa5c940, 0xd7e356];
+const APPLE_COLLECT_RADIUS = 6.5;
+const ORCHARD_ROW_COUNT = 6;
+const ORCHARD_TREES_PER_ROW = 7;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -121,6 +124,8 @@ let activeAction = null;
 let horseGroundOffset = 0;
 let grassClusters = null;
 let grassInstanceData = [];
+let appleItems = [];
+let appleScore = 0;
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -470,35 +475,119 @@ function buildPasture() {
   scene.add(singleGrass);
 
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x6a3f1f });
-  const leafMaterial = new THREE.MeshLambertMaterial({ color: 0x2f6b35 });
-  const leafDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x1f4f2e });
-  const leafLightMaterial = new THREE.MeshLambertMaterial({ color: 0x4d8a43 });
-  const blossomMaterial = new THREE.MeshLambertMaterial({ color: 0xffa6c8 });
-  const blossomLightMaterial = new THREE.MeshLambertMaterial({ color: 0xffc7da });
+  const barkDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x3b2417 });
+  const leafMaterial = new THREE.MeshLambertMaterial({ color: 0x3f7d35, side: THREE.DoubleSide });
+  const leafDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x214f28, side: THREE.DoubleSide });
+  const leafLightMaterial = new THREE.MeshLambertMaterial({ color: 0x78a94c, side: THREE.DoubleSide });
+  const leafSunMaterial = new THREE.MeshLambertMaterial({ color: 0xa5c940, side: THREE.DoubleSide });
+  const appleRedMaterial = new THREE.MeshLambertMaterial({ color: 0xb62218 });
+  const appleGreenMaterial = new THREE.MeshLambertMaterial({ color: 0x92ad33 });
+  const appleStemMaterial = new THREE.MeshLambertMaterial({ color: 0x4b2c17 });
+  const leafCardGeometry = new THREE.PlaneGeometry(0.55, 0.22);
+  const appleGeometry = new THREE.SphereGeometry(0.32, 14, 10);
+  const appleStemGeometry = new THREE.CylinderGeometry(0.025, 0.035, 0.24, 5);
+  const branchAxis = new THREE.Vector3(0, 1, 0);
 
-  function addTree(x, z, blossom = false, size = 1) {
+  function addBranch(start, end, radius, material = barkDarkMaterial) {
+    const direction = new THREE.Vector3().subVectors(end, start);
+    const length = direction.length();
+    const branch = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.62, radius, length, 7), material);
+    branch.position.copy(start).addScaledVector(direction, 0.5);
+    branch.quaternion.setFromUnitVectors(branchAxis, direction.normalize());
+    branch.castShadow = true;
+    scene.add(branch);
+    return branch;
+  }
+
+  function addApple(x, y, z, colorSeed) {
+    const group = new THREE.Group();
+    const apple = new THREE.Mesh(appleGeometry, colorSeed > 0.23 ? appleRedMaterial : appleGreenMaterial);
+    const stem = new THREE.Mesh(appleStemGeometry, appleStemMaterial);
+    stem.position.y = 0.3;
+    stem.rotation.z = 0.25;
+    apple.castShadow = true;
+    stem.castShadow = true;
+    group.add(apple, stem);
+    group.position.set(x, y, z);
+    group.userData.baseY = y;
+    group.userData.spin = 0.7 + colorSeed * 0.8;
+    scene.add(group);
+    appleItems.push({ group, collected: false });
+    return group;
+  }
+
+  function addLeafSpray(x, y, z, yaw, size, material) {
+    const leaf = new THREE.Mesh(leafCardGeometry, material);
+    leaf.position.set(x, y, z);
+    leaf.rotation.set(-0.45 + seededRandom(yaw * 11) * 0.35, yaw, 0.35);
+    leaf.scale.setScalar(size);
+    leaf.castShadow = true;
+    scene.add(leaf);
+  }
+
+  function addAppleTree(x, z, seed = 1, size = 1) {
     const y = getPastureHeight(x, z);
-    const trunkHeight = 4.3 * size;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * size, 0.5 * size, trunkHeight, 8), trunkMaterial);
+    const trunkHeight = (4.4 + seededRandom(seed + 1) * 1.3) * size;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * size, 0.58 * size, trunkHeight, 10), trunkMaterial);
     trunk.position.set(x, y + trunkHeight * 0.5, z);
     trunk.castShadow = true;
     scene.add(trunk);
 
-    const canopyMaterial = blossom ? blossomMaterial : leafMaterial;
-    const canopyOffsets = blossom
-      ? [[0, 0, 0], [-2.2, -0.3, 0.6], [2.0, -0.2, -0.5], [0.4, 0.9, 1.8], [-0.5, 0.7, -1.7]]
-      : [[0, 0, 0], [-1.4, -0.35, 0.8], [1.5, -0.2, -0.7], [0.2, 0.55, 1.3]];
+    const crownY = y + trunkHeight;
+    const branchEnds = [];
+    for (let i = 0; i < 7; i++) {
+      const angle = (i / 7) * Math.PI * 2 + seededRandom(seed + i * 3) * 0.55;
+      const length = (2.5 + seededRandom(seed + i * 5) * 2.2) * size;
+      const lift = (0.7 + seededRandom(seed + i * 7) * 1.4) * size;
+      const start = new THREE.Vector3(x, crownY - (0.55 + seededRandom(seed + i) * 0.6) * size, z);
+      const end = new THREE.Vector3(
+        x + Math.cos(angle) * length,
+        crownY + lift,
+        z + Math.sin(angle) * length
+      );
+      addBranch(start, end, (0.18 + seededRandom(seed + i * 9) * 0.11) * size);
+      branchEnds.push({ end, angle });
+    }
+
+    const canopyOffsets = [
+      [0, 0.4, 0, 3.3, leafMaterial],
+      [-1.8, 0.0, 0.9, 2.4, leafDarkMaterial],
+      [1.9, -0.1, -0.8, 2.5, leafLightMaterial],
+      [0.6, 0.9, 1.9, 2.1, leafSunMaterial],
+      [-0.7, 0.75, -1.9, 2.2, leafMaterial],
+      [2.4, 0.35, 1.2, 1.7, leafLightMaterial],
+      [-2.6, 0.25, -0.8, 1.8, leafDarkMaterial]
+    ];
 
     for (let i = 0; i < canopyOffsets.length; i++) {
-      const [ox, oy, oz] = canopyOffsets[i];
-      const material = blossom
-        ? (i % 2 === 1 ? blossomLightMaterial : canopyMaterial)
-        : (i % 3 === 0 ? leafDarkMaterial : (i % 3 === 1 ? leafMaterial : leafLightMaterial));
-      const leaves = new THREE.Mesh(new THREE.SphereGeometry((blossom ? 2.8 : 3.15) * size, 12, 8), material);
-      leaves.position.set(x + ox * size, y + trunkHeight + 1.0 * size + oy * size, z + oz * size);
-      leaves.scale.set(blossom ? 1.18 : 1.12, blossom ? 0.82 : 0.9, blossom ? 1.18 : 1.12);
+      const [ox, oy, oz, radius, material] = canopyOffsets[i];
+      const leaves = new THREE.Mesh(new THREE.SphereGeometry(radius * size, 14, 10), material);
+      leaves.position.set(x + ox * size, crownY + oy * size, z + oz * size);
+      leaves.scale.set(1.18 + seededRandom(seed + i) * 0.2, 0.72 + seededRandom(seed + i + 20) * 0.22, 1.08);
       leaves.castShadow = true;
       scene.add(leaves);
+    }
+
+    for (let i = 0; i < 30; i++) {
+      const angle = seededRandom(seed + i * 13) * Math.PI * 2;
+      const radius = (1.4 + seededRandom(seed + i * 17) * 3.7) * size;
+      const lx = x + Math.cos(angle) * radius;
+      const lz = z + Math.sin(angle) * radius;
+      const ly = crownY - 1.0 * size + seededRandom(seed + i * 19) * 3.2 * size;
+      const material = i % 4 === 0 ? leafSunMaterial : (i % 3 === 0 ? leafDarkMaterial : leafLightMaterial);
+      addLeafSpray(lx, ly, lz, angle, (0.85 + seededRandom(seed + i * 23) * 0.9) * size, material);
+    }
+
+    for (let i = 0; i < 9; i++) {
+      const branch = branchEnds[i % branchEnds.length];
+      const dangle = branch.angle + (seededRandom(seed + i * 29) - 0.5) * 0.9;
+      const distance = (1.1 + seededRandom(seed + i * 31) * 2.7) * size;
+      addApple(
+        x + Math.cos(dangle) * distance,
+        crownY - (0.25 + seededRandom(seed + i * 37) * 1.8) * size,
+        z + Math.sin(dangle) * distance,
+        seededRandom(seed + i * 41)
+      );
     }
   }
 
@@ -534,22 +623,23 @@ function buildPasture() {
     const inset = 7 + seededRandom(i + 90) * 8;
     const point = getPastureBoundaryPoint(angle, inset);
     const size = 0.78 + seededRandom(i + 100) * 0.62;
-    addTree(point.x, point.z, false, size);
+    addAppleTree(point.x, point.z, i + 1000, size);
   }
 
-  const treeSpots = [
-    [-92, -78], [-76, 64], [86, -72], [72, 86], [-118, 18], [112, 28]
-  ];
-  const cherrySpots = [
-    [-46, -96], [42, 92], [-108, 88], [104, -42], [18, -118]
-  ];
-
-  for (const [x, z] of treeSpots) {
-    if (isInsidePasture(x, z, 18)) addTree(x, z, false, 1.05);
-  }
-
-  for (const [x, z] of cherrySpots) {
-    if (isInsidePasture(x, z, 18)) addTree(x, z, true, 0.95);
+  for (let row = 0; row < ORCHARD_ROW_COUNT; row++) {
+    const z = (row - (ORCHARD_ROW_COUNT - 1) * 0.5) * 24;
+    const rowOffset = row % 2 === 0 ? -8 : 8;
+    for (let col = 0; col < ORCHARD_TREES_PER_ROW; col++) {
+      const seed = 2000 + row * 50 + col * 7;
+      const x = (col - (ORCHARD_TREES_PER_ROW - 1) * 0.5) * 27 + rowOffset;
+      const jitterX = (seededRandom(seed) - 0.5) * 7;
+      const jitterZ = (seededRandom(seed + 1) - 0.5) * 8;
+      const treeX = x + jitterX;
+      const treeZ = z + jitterZ;
+      if (!isInsidePasture(treeX, treeZ, 24)) continue;
+      if (distanceToStream(treeX, treeZ) < STREAM_WIDTH + 8) continue;
+      addAppleTree(treeX, treeZ, seed, 0.86 + seededRandom(seed + 2) * 0.34);
+    }
   }
 
   const rockMaterial = new THREE.MeshLambertMaterial({ color: 0x7d8077 });
@@ -658,6 +748,7 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (PREVENT.has(e.code)) e.preventDefault();
   if (e.code === 'Space') toggleLock();
+  if (e.code === 'KeyQ' && !e.repeat) collectNearestApple();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -670,6 +761,34 @@ const crosshair   = document.getElementById('crosshair');
 
 function toggleLock() {
   isLocked ? document.exitPointerLock() : canvas.requestPointerLock();
+}
+
+function updateAppleHud() {
+  if (applePill) applePill.textContent = 'APPLES ' + appleScore;
+}
+
+function collectNearestApple() {
+  if (!horse || appleItems.length === 0) return;
+
+  let nearest = null;
+  let nearestDistanceSq = APPLE_COLLECT_RADIUS * APPLE_COLLECT_RADIUS;
+
+  for (const apple of appleItems) {
+    if (apple.collected) continue;
+    const dx = apple.group.position.x - horse.position.x;
+    const dz = apple.group.position.z - horse.position.z;
+    const distanceSq = dx * dx + dz * dz;
+    if (distanceSq < nearestDistanceSq) {
+      nearest = apple;
+      nearestDistanceSq = distanceSq;
+    }
+  }
+
+  if (!nearest) return;
+  nearest.collected = true;
+  scene.remove(nearest.group);
+  appleScore++;
+  updateAppleHud();
 }
 
 document.addEventListener('pointerlockchange', () => {
@@ -717,11 +836,20 @@ function crossFadeTo(next, fadeSecs = 0.3) {
 const clock      = new THREE.Clock();
 const statePill  = document.getElementById('state-pill');
 const speedPill  = document.getElementById('speed-pill');
+const applePill  = document.getElementById('apple-pill');
+updateAppleHud();
 
 function animate() {
   requestAnimationFrame(animate);
 
   const delta = Math.min(clock.getDelta(), 0.05); // cap delta to avoid huge jumps
+  const elapsed = clock.elapsedTime;
+
+  for (const apple of appleItems) {
+    if (apple.collected) continue;
+    apple.group.rotation.y += delta * apple.group.userData.spin;
+    apple.group.position.y = apple.group.userData.baseY + Math.sin(elapsed * 2.4 + apple.group.position.x) * 0.035;
+  }
 
   if (horse) {
 
