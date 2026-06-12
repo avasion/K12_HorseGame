@@ -63,6 +63,8 @@ const ORCHARD_TREES_PER_ROW = 5;
 const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
+const APPLE_MODEL_PATH = './apple.glb';
+const DAY_LENGTH_SECONDS = 60;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -112,6 +114,25 @@ const fill = new THREE.DirectionalLight(0xc0d8ff, 0.18);
 fill.position.set(-40, 25, -30);
 scene.add(fill);
 
+const dayColors = {
+  morningSky: new THREE.Color(0x8ec8e8),
+  sunsetSky: new THREE.Color(0xff9d6e),
+  twilightSky: new THREE.Color(0x3d527b),
+  morningFog: new THREE.Color(0xb8d8e8),
+  sunsetFog: new THREE.Color(0xf3a176),
+  twilightFog: new THREE.Color(0x293b5f),
+  morningSun: new THREE.Color(0xffe8c0),
+  sunsetSun: new THREE.Color(0xff7a3d),
+  twilightSun: new THREE.Color(0x526b9f),
+  morningAmbient: new THREE.Color(0xfff5e0),
+  sunsetAmbient: new THREE.Color(0xffb07a),
+  twilightAmbient: new THREE.Color(0x5e6f98),
+  morningHemisphere: new THREE.Color(0xcfeeff),
+  sunsetHemisphere: new THREE.Color(0xffbe7a),
+  twilightHemisphere: new THREE.Color(0x435d8d)
+};
+const tempColor = new THREE.Color();
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  PASTURE GROUND
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +172,7 @@ let bunnyGroundOffset = 0;
 let skyboxModel = null;
 let skyboxOffset = new THREE.Vector3();
 let walkingPathSamples = [];
+let appleTemplate = null;
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -273,6 +295,84 @@ function distanceToWalkingPath(x, z) {
     closestSq = Math.min(closestSq, dx * dx + dz * dz);
   }
   return Math.sqrt(closestSq);
+}
+
+function updateDayCycle(elapsed) {
+  const t = Math.min(1, elapsed / DAY_LENGTH_SECONDS);
+  const sunsetStart = 0.48;
+  const twilightStart = 0.78;
+
+  let phaseT = 0;
+  let skyA = dayColors.morningSky;
+  let skyB = dayColors.morningSky;
+  let fogA = dayColors.morningFog;
+  let fogB = dayColors.morningFog;
+  let sunA = dayColors.morningSun;
+  let sunB = dayColors.morningSun;
+  let ambientA = dayColors.morningAmbient;
+  let ambientB = dayColors.morningAmbient;
+  let hemiA = dayColors.morningHemisphere;
+  let hemiB = dayColors.morningHemisphere;
+  let sunIntensity = 0.55;
+  let ambientIntensity = 1.35;
+  let hemiIntensity = 0.85;
+  let exposure = 0.95;
+  let fogDensity = 0.016;
+
+  if (t < sunsetStart) {
+    phaseT = t / sunsetStart;
+    sunIntensity = 0.58 - phaseT * 0.08;
+  } else if (t < twilightStart) {
+    phaseT = (t - sunsetStart) / (twilightStart - sunsetStart);
+    skyA = dayColors.morningSky;
+    skyB = dayColors.sunsetSky;
+    fogA = dayColors.morningFog;
+    fogB = dayColors.sunsetFog;
+    sunA = dayColors.morningSun;
+    sunB = dayColors.sunsetSun;
+    ambientA = dayColors.morningAmbient;
+    ambientB = dayColors.sunsetAmbient;
+    hemiA = dayColors.morningHemisphere;
+    hemiB = dayColors.sunsetHemisphere;
+    sunIntensity = 0.5 + phaseT * 0.35;
+    ambientIntensity = 1.25 + phaseT * 0.25;
+    hemiIntensity = 0.8 + phaseT * 0.15;
+    exposure = 0.95 + phaseT * 0.12;
+    fogDensity = 0.016 + phaseT * 0.006;
+  } else {
+    phaseT = (t - twilightStart) / (1 - twilightStart);
+    skyA = dayColors.sunsetSky;
+    skyB = dayColors.twilightSky;
+    fogA = dayColors.sunsetFog;
+    fogB = dayColors.twilightFog;
+    sunA = dayColors.sunsetSun;
+    sunB = dayColors.twilightSun;
+    ambientA = dayColors.sunsetAmbient;
+    ambientB = dayColors.twilightAmbient;
+    hemiA = dayColors.sunsetHemisphere;
+    hemiB = dayColors.twilightHemisphere;
+    sunIntensity = 0.85 - phaseT * 0.68;
+    ambientIntensity = 1.5 - phaseT * 0.45;
+    hemiIntensity = 0.95 - phaseT * 0.28;
+    exposure = 1.07 - phaseT * 0.34;
+    fogDensity = 0.022 + phaseT * 0.014;
+  }
+
+  const eased = phaseT * phaseT * (3 - 2 * phaseT);
+  scene.background.copy(tempColor.copy(skyA).lerp(skyB, eased));
+  scene.fog.color.copy(tempColor.copy(fogA).lerp(fogB, eased));
+  scene.fog.density = fogDensity;
+  sun.color.copy(tempColor.copy(sunA).lerp(sunB, eased));
+  sun.intensity = sunIntensity;
+  ambient.color.copy(tempColor.copy(ambientA).lerp(ambientB, eased));
+  ambient.intensity = ambientIntensity;
+  hemi.color.copy(tempColor.copy(hemiA).lerp(hemiB, eased));
+  hemi.intensity = hemiIntensity;
+  fill.intensity = Math.max(0.08, 0.18 - t * 0.08);
+  renderer.toneMappingExposure = exposure;
+
+  const sunAngle = THREE.MathUtils.lerp(1.1, -0.18, t);
+  sun.position.set(Math.cos(sunAngle) * 80, Math.max(8, Math.sin(sunAngle) * 90), 42);
 }
 
 function seededRandom(seed) {
@@ -749,21 +849,18 @@ function buildPasture() {
   singleGrass.receiveShadow = false;
   scene.add(singleGrass);
 
-  const appleRedMaterial = new THREE.MeshLambertMaterial({ color: 0xb62218 });
-  const appleGreenMaterial = new THREE.MeshLambertMaterial({ color: 0x92ad33 });
-  const appleStemMaterial = new THREE.MeshLambertMaterial({ color: 0x4b2c17 });
-  const appleGeometry = new THREE.SphereGeometry(0.32, 14, 10);
-  const appleStemGeometry = new THREE.CylinderGeometry(0.025, 0.035, 0.24, 5);
-
   function addApple(x, y, z, colorSeed) {
     const group = new THREE.Group();
-    const apple = new THREE.Mesh(appleGeometry, colorSeed > 0.23 ? appleRedMaterial : appleGreenMaterial);
-    const stem = new THREE.Mesh(appleStemGeometry, appleStemMaterial);
-    stem.position.y = 0.3;
-    stem.rotation.z = 0.25;
-    apple.castShadow = true;
-    stem.castShadow = true;
-    group.add(apple, stem);
+    if (!appleTemplate) return group;
+
+    const apple = appleTemplate.clone(true);
+    apple.rotation.set(
+      (colorSeed - 0.5) * 0.45,
+      colorSeed * Math.PI * 2,
+      (seededRandom(colorSeed * 1000) - 0.5) * 0.35
+    );
+    apple.scale.setScalar(0.42 + colorSeed * 0.12);
+    group.add(apple);
     group.position.set(x, y, z);
     group.userData.baseY = y;
     group.userData.spin = 0.7 + colorSeed * 0.8;
@@ -851,7 +948,7 @@ function buildPasture() {
       const point = getPastureBoundaryPoint(angle, inset);
       if (isInsidePond(point.x, point.z, 10)) continue;
       const height = 8.6 + seededRandom(seed + 100) * 3.1;
-      addModelAppleTree(point.x, point.z, seed, height, 3);
+      addModelAppleTree(point.x, point.z, seed, height, 1);
     }
   }
 
@@ -894,7 +991,7 @@ function buildPasture() {
       const treeZ = z + jitterZ;
       if (!isInsidePasture(treeX, treeZ, 24)) continue;
       if (isInsidePond(treeX, treeZ, 9)) continue;
-      addModelAppleTree(treeX, treeZ, seed, 9.8 + seededRandom(seed + 2) * 2.4, 10);
+      addModelAppleTree(treeX, treeZ, seed, 9.8 + seededRandom(seed + 2) * 2.4, 5);
     }
   }
 
@@ -931,17 +1028,41 @@ function prepareTemplate(template) {
   return template;
 }
 
+function prepareAppleTemplate(template) {
+  template.traverse(child => {
+    if (child.isMesh) {
+      child.castShadow = false;
+      child.receiveShadow = false;
+    }
+  });
+
+  template.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(template);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxAxis = Math.max(size.x, size.y, size.z, 0.001);
+  const normalizer = 0.85 / maxAxis;
+  template.scale.setScalar(normalizer);
+  template.position.copy(center).multiplyScalar(-normalizer);
+  return template;
+}
+
 function loadTreeAssetsAndBuildPasture() {
-  setProgress(12, 'Loading orchard trees...');
-  Promise.all(TREE_MODEL_PATHS.map(path => loadGLTF(path)))
-    .then(gltfs => {
-      treeTemplates = gltfs.map(gltf => prepareTemplate(gltf.scene));
+  setProgress(12, 'Loading orchard assets...');
+  Promise.all([
+    Promise.all(TREE_MODEL_PATHS.map(path => loadGLTF(path))),
+    loadGLTF(APPLE_MODEL_PATH)
+  ])
+    .then(([treeGltfs, appleGltf]) => {
+      treeTemplates = treeGltfs.map(gltf => prepareTemplate(gltf.scene));
+      appleTemplate = prepareAppleTemplate(appleGltf.scene);
       buildPasture();
       loadBunny();
     })
     .catch(err => {
-      console.warn('Orchard tree models failed to load.', err);
+      console.warn('Orchard assets failed to load.', err);
       treeTemplates = [];
+      appleTemplate = null;
       buildPasture();
       loadBunny();
     });
@@ -1246,6 +1367,7 @@ function animate() {
 
   const delta = Math.min(clock.getDelta(), 0.05); // cap delta to avoid huge jumps
   const elapsed = clock.elapsedTime;
+  updateDayCycle(elapsed);
 
   for (const apple of appleItems) {
     if (apple.collected) continue;
