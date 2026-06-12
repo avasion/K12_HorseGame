@@ -53,6 +53,8 @@ const GRASS_COLOR_PALETTE = [0x4f9900, 0x82c23a, 0xa5c940, 0xd7e356];
 const APPLE_COLLECT_RADIUS = 6.5;
 const ORCHARD_ROW_COUNT = 6;
 const ORCHARD_TREES_PER_ROW = 7;
+const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
+const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -126,7 +128,15 @@ let grassClusters = null;
 let grassInstanceData = [];
 let appleItems = [];
 let appleScore = 0;
-let treeTemplate = null;
+let treeTemplates = [];
+let bunny = null;
+let bunnyMixer = null;
+let bunnyMoveAction = null;
+let bunnyIdleAction = null;
+let bunnyActiveAction = null;
+let bunnyTarget = new THREE.Vector3(18, 0, 18);
+let bunnyPauseUntil = 0;
+let bunnyGroundOffset = 0;
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -475,30 +485,11 @@ function buildPasture() {
   singleGrass.receiveShadow = false;
   scene.add(singleGrass);
 
-  const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x6a3f1f });
-  const barkDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x3b2417 });
-  const leafMaterial = new THREE.MeshLambertMaterial({ color: 0x3f7d35, side: THREE.DoubleSide });
-  const leafDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x214f28, side: THREE.DoubleSide });
-  const leafLightMaterial = new THREE.MeshLambertMaterial({ color: 0x78a94c, side: THREE.DoubleSide });
-  const leafSunMaterial = new THREE.MeshLambertMaterial({ color: 0xa5c940, side: THREE.DoubleSide });
   const appleRedMaterial = new THREE.MeshLambertMaterial({ color: 0xb62218 });
   const appleGreenMaterial = new THREE.MeshLambertMaterial({ color: 0x92ad33 });
   const appleStemMaterial = new THREE.MeshLambertMaterial({ color: 0x4b2c17 });
-  const leafCardGeometry = new THREE.PlaneGeometry(0.55, 0.22);
   const appleGeometry = new THREE.SphereGeometry(0.32, 14, 10);
   const appleStemGeometry = new THREE.CylinderGeometry(0.025, 0.035, 0.24, 5);
-  const branchAxis = new THREE.Vector3(0, 1, 0);
-
-  function addBranch(start, end, radius, material = barkDarkMaterial) {
-    const direction = new THREE.Vector3().subVectors(end, start);
-    const length = direction.length();
-    const branch = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.62, radius, length, 7), material);
-    branch.position.copy(start).addScaledVector(direction, 0.5);
-    branch.quaternion.setFromUnitVectors(branchAxis, direction.normalize());
-    branch.castShadow = true;
-    scene.add(branch);
-    return branch;
-  }
 
   function addApple(x, y, z, colorSeed) {
     const group = new THREE.Group();
@@ -517,89 +508,14 @@ function buildPasture() {
     return group;
   }
 
-  function addLeafSpray(x, y, z, yaw, size, material) {
-    const leaf = new THREE.Mesh(leafCardGeometry, material);
-    leaf.position.set(x, y, z);
-    leaf.rotation.set(-0.45 + seededRandom(yaw * 11) * 0.35, yaw, 0.35);
-    leaf.scale.setScalar(size);
-    leaf.castShadow = true;
-    scene.add(leaf);
-  }
-
-  function addAppleTree(x, z, seed = 1, size = 1) {
-    const y = getPastureHeight(x, z);
-    const trunkHeight = (4.4 + seededRandom(seed + 1) * 1.3) * size;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * size, 0.58 * size, trunkHeight, 10), trunkMaterial);
-    trunk.position.set(x, y + trunkHeight * 0.5, z);
-    trunk.castShadow = true;
-    scene.add(trunk);
-
-    const crownY = y + trunkHeight;
-    const branchEnds = [];
-    for (let i = 0; i < 7; i++) {
-      const angle = (i / 7) * Math.PI * 2 + seededRandom(seed + i * 3) * 0.55;
-      const length = (2.5 + seededRandom(seed + i * 5) * 2.2) * size;
-      const lift = (0.7 + seededRandom(seed + i * 7) * 1.4) * size;
-      const start = new THREE.Vector3(x, crownY - (0.55 + seededRandom(seed + i) * 0.6) * size, z);
-      const end = new THREE.Vector3(
-        x + Math.cos(angle) * length,
-        crownY + lift,
-        z + Math.sin(angle) * length
-      );
-      addBranch(start, end, (0.18 + seededRandom(seed + i * 9) * 0.11) * size);
-      branchEnds.push({ end, angle });
-    }
-
-    const canopyOffsets = [
-      [0, 0.4, 0, 3.3, leafMaterial],
-      [-1.8, 0.0, 0.9, 2.4, leafDarkMaterial],
-      [1.9, -0.1, -0.8, 2.5, leafLightMaterial],
-      [0.6, 0.9, 1.9, 2.1, leafSunMaterial],
-      [-0.7, 0.75, -1.9, 2.2, leafMaterial],
-      [2.4, 0.35, 1.2, 1.7, leafLightMaterial],
-      [-2.6, 0.25, -0.8, 1.8, leafDarkMaterial]
-    ];
-
-    for (let i = 0; i < canopyOffsets.length; i++) {
-      const [ox, oy, oz, radius, material] = canopyOffsets[i];
-      const leaves = new THREE.Mesh(new THREE.SphereGeometry(radius * size, 14, 10), material);
-      leaves.position.set(x + ox * size, crownY + oy * size, z + oz * size);
-      leaves.scale.set(1.18 + seededRandom(seed + i) * 0.2, 0.72 + seededRandom(seed + i + 20) * 0.22, 1.08);
-      leaves.castShadow = true;
-      scene.add(leaves);
-    }
-
-    for (let i = 0; i < 30; i++) {
-      const angle = seededRandom(seed + i * 13) * Math.PI * 2;
-      const radius = (1.4 + seededRandom(seed + i * 17) * 3.7) * size;
-      const lx = x + Math.cos(angle) * radius;
-      const lz = z + Math.sin(angle) * radius;
-      const ly = crownY - 1.0 * size + seededRandom(seed + i * 19) * 3.2 * size;
-      const material = i % 4 === 0 ? leafSunMaterial : (i % 3 === 0 ? leafDarkMaterial : leafLightMaterial);
-      addLeafSpray(lx, ly, lz, angle, (0.85 + seededRandom(seed + i * 23) * 0.9) * size, material);
-    }
-
-    for (let i = 0; i < 9; i++) {
-      const branch = branchEnds[i % branchEnds.length];
-      const dangle = branch.angle + (seededRandom(seed + i * 29) - 0.5) * 0.9;
-      const distance = (1.1 + seededRandom(seed + i * 31) * 2.7) * size;
-      addApple(
-        x + Math.cos(dangle) * distance,
-        crownY - (0.25 + seededRandom(seed + i * 37) * 1.8) * size,
-        z + Math.sin(dangle) * distance,
-        seededRandom(seed + i * 41)
-      );
-    }
-  }
-
   function addModelAppleTree(x, z, seed = 1, targetHeight = 11) {
-    if (!treeTemplate) {
-      addAppleTree(x, z, seed, targetHeight / 10.5);
+    if (treeTemplates.length === 0) {
       return;
     }
 
     const y = getPastureHeight(x, z);
-    const tree = treeTemplate.clone(true);
+    const templateIndex = Math.floor(seededRandom(seed + 5) * treeTemplates.length) % treeTemplates.length;
+    const tree = treeTemplates[templateIndex].clone(true);
     tree.rotation.y = seededRandom(seed + 70) * Math.PI * 2;
     tree.traverse(child => {
       if (child.isMesh) {
@@ -667,8 +583,8 @@ function buildPasture() {
     const angle = (i / PERIMETER_TREE_COUNT) * Math.PI * 2 + seededRandom(i + 80) * 0.032;
     const inset = 7 + seededRandom(i + 90) * 8;
     const point = getPastureBoundaryPoint(angle, inset);
-    const size = 0.78 + seededRandom(i + 100) * 0.62;
-    addAppleTree(point.x, point.z, i + 1000, size);
+    const height = 8.8 + seededRandom(i + 100) * 3.2;
+    addModelAppleTree(point.x, point.z, i + 1000, height);
   }
 
   for (let row = 0; row < ORCHARD_ROW_COUNT; row++) {
@@ -704,32 +620,97 @@ function buildPasture() {
   assetLoaded();
 }
 
-function loadTreeAssetAndBuildPasture() {
+function loadGLTF(path) {
+  return new Promise((resolve, reject) => {
+    gltfLoader.load(path, resolve, undefined, reject);
+  });
+}
+
+function prepareTemplate(template) {
+  template.traverse(child => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  return template;
+}
+
+function loadTreeAssetsAndBuildPasture() {
   setProgress(12, 'Loading orchard trees...');
+  Promise.all(TREE_MODEL_PATHS.map(path => loadGLTF(path)))
+    .then(gltfs => {
+      treeTemplates = gltfs.map(gltf => prepareTemplate(gltf.scene));
+      buildPasture();
+      loadBunny();
+    })
+    .catch(err => {
+      console.warn('Orchard tree models failed to load.', err);
+      treeTemplates = [];
+      buildPasture();
+      loadBunny();
+    });
+}
+
+loadTreeAssetsAndBuildPasture();
+
+function chooseBunnyAction(clips, names) {
+  for (const name of names) {
+    const clip = THREE.AnimationClip.findByName(clips, name);
+    if (clip) return bunnyMixer.clipAction(clip);
+  }
+  const lowerNames = names.map(name => name.toLowerCase());
+  const fuzzy = clips.find(clip => lowerNames.some(name => clip.name.toLowerCase().includes(name)));
+  return fuzzy ? bunnyMixer.clipAction(fuzzy) : null;
+}
+
+function placeBunnyModel(model) {
+  const start = new THREE.Vector3(18, 0, 18);
+  clampToPasture(start, 28);
+  start.y = getPastureHeight(start.x, start.z);
+
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const scale = 1.05 / Math.max(0.1, size.y);
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
+
+  const scaledBox = new THREE.Box3().setFromObject(model);
+  const center = scaledBox.getCenter(new THREE.Vector3());
+  model.position.set(start.x - center.x, start.y - scaledBox.min.y, start.z - center.z);
+  bunnyGroundOffset = model.position.y - start.y;
+  model.rotation.y = Math.PI * 0.25;
+}
+
+function loadBunny() {
   gltfLoader.load(
-    './tree.glb',
+    BUNNY_MODEL_PATH,
     (gltf) => {
-      treeTemplate = gltf.scene;
-      treeTemplate.traverse(child => {
+      bunny = gltf.scene;
+      bunny.traverse(child => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
         }
       });
-      buildPasture();
+      placeBunnyModel(bunny);
+      scene.add(bunny);
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        bunnyMixer = new THREE.AnimationMixer(bunny);
+        bunnyMoveAction = chooseBunnyAction(gltf.animations, ['hop', 'jump', 'walk', 'run', 'move']);
+        bunnyIdleAction = chooseBunnyAction(gltf.animations, ['idle', 'sit', 'rest', 'look']);
+        if (!bunnyMoveAction) bunnyMoveAction = bunnyMixer.clipAction(gltf.animations[0]);
+        if (!bunnyIdleAction && gltf.animations.length > 1) bunnyIdleAction = bunnyMixer.clipAction(gltf.animations[1]);
+        bunnyActiveAction = bunnyIdleAction || bunnyMoveAction;
+        bunnyActiveAction?.reset().play();
+      }
     },
-    (xhr) => {
-      if (xhr.total) setProgress(12 + (xhr.loaded / xhr.total) * 8, 'Loading orchard trees...');
-    },
-    (err) => {
-      console.warn('tree.glb not found - using procedural orchard fallback.', err);
-      treeTemplate = null;
-      buildPasture();
-    }
+    undefined,
+    (err) => console.warn('Bunny model failed to load.', err)
   );
 }
-
-loadTreeAssetAndBuildPasture();
 
 // ── Horse ────────────────────────────────────────────────────────────────────
 setProgress(50, 'Loading horse…');
@@ -899,6 +880,55 @@ function crossFadeTo(next, fadeSecs = 0.3) {
   activeAction = next;
 }
 
+function crossFadeBunnyTo(next, fadeSecs = 0.35) {
+  if (!next || next === bunnyActiveAction) return;
+  if (bunnyActiveAction) bunnyActiveAction.fadeOut(fadeSecs);
+  next.reset().fadeIn(fadeSecs).play();
+  bunnyActiveAction = next;
+}
+
+function pickBunnyTarget(elapsed) {
+  for (let i = 0; i < 12; i++) {
+    const seed = elapsed * 13.7 + i * 19.3;
+    const x = (seededRandom(seed + 1) - 0.5) * PASTURE_RADIUS_X * 1.5;
+    const z = (seededRandom(seed + 2) - 0.5) * PASTURE_RADIUS_Z * 1.35;
+    if (!isInsidePasture(x, z, 26)) continue;
+    if (distanceToStream(x, z) < STREAM_WIDTH + 5) continue;
+    bunnyTarget.set(x, getPastureHeight(x, z), z);
+    return;
+  }
+}
+
+function updateBunny(delta, elapsed) {
+  if (!bunny) return;
+
+  const dx = bunnyTarget.x - bunny.position.x;
+  const dz = bunnyTarget.z - bunny.position.z;
+  const distance = Math.sqrt(dx * dx + dz * dz);
+  const pausing = elapsed < bunnyPauseUntil;
+
+  if (distance < 1.6) {
+    bunnyPauseUntil = elapsed + 1.2 + seededRandom(elapsed + 5) * 2.4;
+    pickBunnyTarget(elapsed + 11);
+  }
+
+  if (pausing) {
+    crossFadeBunnyTo(bunnyIdleAction || bunnyMoveAction);
+  } else {
+    crossFadeBunnyTo(bunnyMoveAction || bunnyIdleAction);
+    const yaw = Math.atan2(dx, dz);
+    bunny.rotation.y += (yaw - bunny.rotation.y) * Math.min(1, delta * 4.5);
+    const speedScale = 1.2 + seededRandom(Math.floor(elapsed * 2)) * 0.45;
+    bunny.position.x += Math.sin(yaw) * delta * speedScale;
+    bunny.position.z += Math.cos(yaw) * delta * speedScale;
+    clampToPasture(bunny.position, 24);
+    bunny.position.y = getPastureHeight(bunny.position.x, bunny.position.z) + bunnyGroundOffset;
+  }
+
+  if (bunnyMoveAction) bunnyMoveAction.timeScale = pausing ? 0.45 : 1.0;
+  if (bunnyMixer) bunnyMixer.update(delta);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  GAME LOOP
 // ─────────────────────────────────────────────────────────────────────────────
@@ -920,6 +950,8 @@ function animate() {
     apple.group.rotation.y += delta * apple.group.userData.spin;
     apple.group.position.y = apple.group.userData.baseY + Math.sin(elapsed * 2.4 + apple.group.position.x) * 0.035;
   }
+
+  updateBunny(delta, elapsed);
 
   if (horse) {
 
