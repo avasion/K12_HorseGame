@@ -41,7 +41,7 @@ const CAM_SMOOTH        = 0.10;  // camera position lerp (lower = smoother lag)
 const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 
 // Pasture
-const PASTURE_SIZE = 220;
+const PASTURE_SIZE = 286;
 const PASTURE_SEGMENTS = 90;
 const GRASS_CLUSTER_COUNT = 120000;
 const SINGLE_GRASS_COUNT = 180000;
@@ -64,10 +64,13 @@ const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
 const DAY_LENGTH_SECONDS = 120;
+const SUNSET_START = 0.48;
+const TWILIGHT_START = 0.78;
 const NIGHT_START = 0.78;
 const GHOST_COUNT = 4;
 const GHOST_STEAL_RADIUS = 3.1;
 const GHOST_STEAL_COOLDOWN = 2.8;
+const BUSH_COUNT = 90;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -309,8 +312,8 @@ function distanceToWalkingPath(x, z) {
 function updateDayCycle(elapsed) {
   const t = Math.min(1, elapsed / DAY_LENGTH_SECONDS);
   dayProgress = t;
-  const sunsetStart = 0.48;
-  const twilightStart = 0.78;
+  const sunsetStart = SUNSET_START;
+  const twilightStart = TWILIGHT_START;
 
   let phaseT = 0;
   let skyA = dayColors.morningSky;
@@ -563,15 +566,10 @@ function buildPasture() {
   setProgress(20, 'Growing pasture...');
 
   const position = pastureGround.geometry.attributes.position;
-  const boundaryProjector = new THREE.Vector3();
   for (let i = 0; i < position.count; i++) {
     const x = position.getX(i);
     const z = -position.getY(i);
-    boundaryProjector.set(x, 0, z);
-    clampToPasture(boundaryProjector, 0);
-    position.setX(i, boundaryProjector.x);
-    position.setY(i, -boundaryProjector.z);
-    position.setZ(i, getPastureHeight(boundaryProjector.x, boundaryProjector.z));
+    position.setZ(i, getPastureHeight(x, z));
   }
   position.needsUpdate = true;
   pastureGround.geometry.computeVertexNormals();
@@ -876,6 +874,7 @@ function buildPasture() {
   singleGrass.castShadow = false;
   singleGrass.receiveShadow = false;
   scene.add(singleGrass);
+  createBushes();
 
   const appleBodyGeometry = new THREE.SphereGeometry(0.34, 14, 10);
   const appleStemGeometry = new THREE.CylinderGeometry(0.025, 0.035, 0.22, 5);
@@ -1146,6 +1145,88 @@ function createGhosts() {
   }
 }
 
+function createBushes() {
+  const bushGroup = new THREE.Group();
+  bushGroup.name = 'pasture-bushes';
+
+  const leafGeometries = [
+    new THREE.DodecahedronGeometry(0.75, 1),
+    new THREE.SphereGeometry(0.7, 10, 7),
+    new THREE.IcosahedronGeometry(0.68, 1)
+  ];
+  const bushMaterials = [
+    new THREE.MeshLambertMaterial({ color: 0x2f5f2e }),
+    new THREE.MeshLambertMaterial({ color: 0x3f7d35 }),
+    new THREE.MeshLambertMaterial({ color: 0x5d8f3c }),
+    new THREE.MeshLambertMaterial({ color: 0x6f8e45 })
+  ];
+  const twigMaterial = new THREE.MeshLambertMaterial({ color: 0x4a3322 });
+  const twigGeometry = new THREE.CylinderGeometry(0.035, 0.055, 0.55, 5);
+
+  let placed = 0;
+  let attempts = 0;
+  while (placed < BUSH_COUNT && attempts < BUSH_COUNT * 12) {
+    attempts++;
+    const seed = 8300 + attempts * 17;
+    const x = (seededRandom(seed) - 0.5) * PASTURE_RADIUS_X * 1.65;
+    const z = (seededRandom(seed + 1) - 0.5) * PASTURE_RADIUS_Z * 1.55;
+    if (!isInsidePasture(x, z, 18)) continue;
+    if (isInsidePond(x, z, 7)) continue;
+    if (distanceToWalkingPath(x, z) < PATH_HALF_WIDTH + 2.2) continue;
+    if (x * x + z * z < 120) continue;
+
+    const y = getPastureHeight(x, z);
+    const bush = new THREE.Group();
+    bush.position.set(x, y + 0.1, z);
+    bush.rotation.y = seededRandom(seed + 2) * Math.PI * 2;
+    const baseScale = 0.65 + seededRandom(seed + 3) * 0.75;
+
+    const twigCount = 2 + Math.floor(seededRandom(seed + 4) * 3);
+    for (let i = 0; i < twigCount; i++) {
+      const twig = new THREE.Mesh(twigGeometry, twigMaterial);
+      const angle = (i / twigCount) * Math.PI * 2 + seededRandom(seed + i) * 0.7;
+      twig.position.set(Math.cos(angle) * 0.22 * baseScale, 0.2, Math.sin(angle) * 0.22 * baseScale);
+      twig.rotation.set(0.35 + seededRandom(seed + i + 8) * 0.45, angle, 0.2);
+      twig.scale.setScalar(baseScale * (0.75 + seededRandom(seed + i + 13) * 0.35));
+      twig.castShadow = false;
+      twig.receiveShadow = false;
+      bush.add(twig);
+    }
+
+    const clumpCount = 3 + Math.floor(seededRandom(seed + 5) * 4);
+    for (let i = 0; i < clumpCount; i++) {
+      const angle = (i / clumpCount) * Math.PI * 2 + seededRandom(seed + i + 20) * 0.8;
+      const clump = new THREE.Mesh(
+        leafGeometries[i % leafGeometries.length],
+        bushMaterials[Math.floor(seededRandom(seed + i + 30) * bushMaterials.length) % bushMaterials.length]
+      );
+      clump.position.set(
+        Math.cos(angle) * (0.28 + seededRandom(seed + i + 40) * 0.38) * baseScale,
+        (0.42 + seededRandom(seed + i + 50) * 0.28) * baseScale,
+        Math.sin(angle) * (0.28 + seededRandom(seed + i + 60) * 0.38) * baseScale
+      );
+      clump.scale.set(
+        baseScale * (0.8 + seededRandom(seed + i + 70) * 0.55),
+        baseScale * (0.42 + seededRandom(seed + i + 80) * 0.34),
+        baseScale * (0.75 + seededRandom(seed + i + 90) * 0.5)
+      );
+      clump.rotation.set(
+        seededRandom(seed + i + 100) * 0.4,
+        seededRandom(seed + i + 110) * Math.PI * 2,
+        seededRandom(seed + i + 120) * 0.35
+      );
+      clump.castShadow = false;
+      clump.receiveShadow = false;
+      bush.add(clump);
+    }
+
+    bushGroup.add(bush);
+    placed++;
+  }
+
+  scene.add(bushGroup);
+}
+
 function loadGLTF(path) {
   return new Promise((resolve, reject) => {
     gltfLoader.load(path, resolve, undefined, reject);
@@ -1345,6 +1426,29 @@ function updateAppleHud() {
   if (applePill) applePill.textContent = 'APPLES ' + appleScore;
 }
 
+function formatTimer(seconds) {
+  const safeSeconds = Math.max(0, Math.ceil(seconds));
+  const mins = Math.floor(safeSeconds / 60);
+  const secs = safeSeconds % 60;
+  return mins + ':' + String(secs).padStart(2, '0');
+}
+
+function updateDayTimer(elapsed) {
+  if (!dayTimer) return;
+
+  const sunsetAt = DAY_LENGTH_SECONDS * SUNSET_START;
+  const twilightAt = DAY_LENGTH_SECONDS * TWILIGHT_START;
+  if (elapsed < sunsetAt) {
+    dayTimer.textContent = 'SUNSET IN ' + formatTimer(sunsetAt - elapsed);
+  } else if (elapsed < twilightAt) {
+    dayTimer.textContent = 'SUNSET ' + formatTimer(twilightAt - elapsed);
+  } else if (elapsed < DAY_LENGTH_SECONDS) {
+    dayTimer.textContent = 'TWILIGHT ' + formatTimer(DAY_LENGTH_SECONDS - elapsed);
+  } else {
+    dayTimer.textContent = 'NIGHT';
+  }
+}
+
 function collectNearestApple() {
   if (!horse || appleItems.length === 0) return;
 
@@ -1516,6 +1620,7 @@ const clock      = new THREE.Clock();
 const statePill  = document.getElementById('state-pill');
 const speedPill  = document.getElementById('speed-pill');
 const applePill  = document.getElementById('apple-pill');
+const dayTimer   = document.getElementById('day-timer');
 updateAppleHud();
 
 function animate() {
@@ -1524,6 +1629,7 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.05); // cap delta to avoid huge jumps
   const elapsed = clock.elapsedTime;
   updateDayCycle(elapsed);
+  updateDayTimer(elapsed);
 
   for (const apple of appleItems) {
     if (apple.collected) continue;

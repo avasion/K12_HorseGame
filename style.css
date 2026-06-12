@@ -194,6 +194,25 @@ kbd {
   -webkit-backdrop-filter: blur(4px);
 }
 
+#day-timer {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 50;
+  pointer-events: none;
+  background: rgba(8, 6, 4, 0.58);
+  border: 1px solid rgba(200, 160, 106, 0.28);
+  color: #e0bd83;
+  padding: 7px 14px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
 /* ─── Bottom hints ────────────────────────────────────────────────────────── */
 #hints {
   position: fixed;
