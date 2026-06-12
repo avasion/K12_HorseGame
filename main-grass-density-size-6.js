@@ -58,9 +58,11 @@ const PERIMETER_TREE_COUNT = 52;
 const PERIMETER_RAIL_COUNT = 48;
 const GRASS_COLOR_PALETTE = [0x2f5f2e, 0x3f7d35, 0x5d8f3c, 0x78a94c, 0x8cab55];
 const APPLE_COLLECT_RADIUS = 6.5;
+const APPLE_GOAL = 100;
 const ORCHARD_ROW_COUNT = 4;
 const ORCHARD_TREES_PER_ROW = 5;
 const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
+const BUSH_MODEL_PATH = './bush.glb';
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
 const DAY_LENGTH_SECONDS = 120;
@@ -70,7 +72,8 @@ const NIGHT_START = 0.78;
 const GHOST_COUNT = 4;
 const GHOST_STEAL_RADIUS = 3.1;
 const GHOST_STEAL_COOLDOWN = 2.8;
-const BUSH_COUNT = 90;
+const BUSH_CLUSTER_COUNT = 24;
+const BASKET_COUNT = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -174,6 +177,8 @@ let appleScore = 0;
 let ghosts = [];
 let dayProgress = 0;
 let treeTemplates = [];
+let bushTemplate = null;
+let bushTemplateHeight = 1;
 let bunny = null;
 let bunnyMixer = null;
 let bunnyMoveAction = null;
@@ -190,6 +195,7 @@ let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
 let isLocked    = false;
 let gallopUntil = 0;
+let levelComplete = false;
 
 // Camera orbit state (relative to horse yaw)
 let camYawOffset   = 0;         // horizontal offset from behind-horse position
@@ -1075,6 +1081,7 @@ function buildPasture() {
     scene.add(rock);
   }
 
+  createAppleBaskets();
   createGhosts();
   setHorseOnGround();
   setProgress(48, 'Pasture ready.');
@@ -1146,85 +1153,127 @@ function createGhosts() {
 }
 
 function createBushes() {
+  if (!bushTemplate) return;
+
   const bushGroup = new THREE.Group();
   bushGroup.name = 'pasture-bushes';
 
-  const leafGeometries = [
-    new THREE.DodecahedronGeometry(0.75, 1),
-    new THREE.SphereGeometry(0.7, 10, 7),
-    new THREE.IcosahedronGeometry(0.68, 1)
-  ];
-  const bushMaterials = [
-    new THREE.MeshLambertMaterial({ color: 0x2f5f2e }),
-    new THREE.MeshLambertMaterial({ color: 0x3f7d35 }),
-    new THREE.MeshLambertMaterial({ color: 0x5d8f3c }),
-    new THREE.MeshLambertMaterial({ color: 0x6f8e45 })
-  ];
-  const twigMaterial = new THREE.MeshLambertMaterial({ color: 0x4a3322 });
-  const twigGeometry = new THREE.CylinderGeometry(0.035, 0.055, 0.55, 5);
-
-  let placed = 0;
+  let placedClusters = 0;
   let attempts = 0;
-  while (placed < BUSH_COUNT && attempts < BUSH_COUNT * 12) {
+  while (placedClusters < BUSH_CLUSTER_COUNT && attempts < BUSH_CLUSTER_COUNT * 14) {
     attempts++;
-    const seed = 8300 + attempts * 17;
-    const x = (seededRandom(seed) - 0.5) * PASTURE_RADIUS_X * 1.65;
-    const z = (seededRandom(seed + 1) - 0.5) * PASTURE_RADIUS_Z * 1.55;
-    if (!isInsidePasture(x, z, 18)) continue;
-    if (isInsidePond(x, z, 7)) continue;
-    if (distanceToWalkingPath(x, z) < PATH_HALF_WIDTH + 2.2) continue;
-    if (x * x + z * z < 120) continue;
+    const seed = 8300 + attempts * 31;
+    const centerX = (seededRandom(seed) - 0.5) * PASTURE_RADIUS_X * 1.55;
+    const centerZ = (seededRandom(seed + 1) - 0.5) * PASTURE_RADIUS_Z * 1.45;
+    if (!isInsidePasture(centerX, centerZ, 18)) continue;
+    if (isInsidePond(centerX, centerZ, 8)) continue;
+    if (distanceToWalkingPath(centerX, centerZ) < PATH_HALF_WIDTH + 3.2) continue;
+    if (centerX * centerX + centerZ * centerZ < 160) continue;
 
-    const y = getPastureHeight(x, z);
-    const bush = new THREE.Group();
-    bush.position.set(x, y + 0.1, z);
-    bush.rotation.y = seededRandom(seed + 2) * Math.PI * 2;
-    const baseScale = 0.65 + seededRandom(seed + 3) * 0.75;
+    const cluster = new THREE.Group();
+    cluster.position.set(centerX, 0, centerZ);
+    cluster.rotation.y = seededRandom(seed + 2) * Math.PI * 2;
 
-    const twigCount = 2 + Math.floor(seededRandom(seed + 4) * 3);
-    for (let i = 0; i < twigCount; i++) {
-      const twig = new THREE.Mesh(twigGeometry, twigMaterial);
-      const angle = (i / twigCount) * Math.PI * 2 + seededRandom(seed + i) * 0.7;
-      twig.position.set(Math.cos(angle) * 0.22 * baseScale, 0.2, Math.sin(angle) * 0.22 * baseScale);
-      twig.rotation.set(0.35 + seededRandom(seed + i + 8) * 0.45, angle, 0.2);
-      twig.scale.setScalar(baseScale * (0.75 + seededRandom(seed + i + 13) * 0.35));
-      twig.castShadow = false;
-      twig.receiveShadow = false;
-      bush.add(twig);
+    const bushCount = 2 + Math.floor(seededRandom(seed + 3) * 4);
+    for (let i = 0; i < bushCount; i++) {
+      const localSeed = seed + i * 47;
+      const angle = seededRandom(localSeed + 4) * Math.PI * 2;
+      const radius = seededRandom(localSeed + 5) * (2.4 + seededRandom(seed + 6) * 2.4);
+      const x = centerX + Math.cos(angle) * radius;
+      const z = centerZ + Math.sin(angle) * radius;
+      if (!isInsidePasture(x, z, 16)) continue;
+      if (isInsidePond(x, z, 6)) continue;
+      if (distanceToWalkingPath(x, z) < PATH_HALF_WIDTH + 1.4) continue;
+
+      const bush = bushTemplate.clone(true);
+      const targetHeight = 0.95 + seededRandom(localSeed + 7) * 1.15;
+      const scale = targetHeight / bushTemplateHeight;
+      bush.scale.set(
+        scale * (0.86 + seededRandom(localSeed + 8) * 0.34),
+        scale,
+        scale * (0.86 + seededRandom(localSeed + 9) * 0.34)
+      );
+      bush.rotation.y = seededRandom(localSeed + 10) * Math.PI * 2;
+      bush.position.set(x - centerX, getPastureHeight(x, z) + 0.02, z - centerZ);
+      cluster.add(bush);
     }
 
-    const clumpCount = 3 + Math.floor(seededRandom(seed + 5) * 4);
-    for (let i = 0; i < clumpCount; i++) {
-      const angle = (i / clumpCount) * Math.PI * 2 + seededRandom(seed + i + 20) * 0.8;
-      const clump = new THREE.Mesh(
-        leafGeometries[i % leafGeometries.length],
-        bushMaterials[Math.floor(seededRandom(seed + i + 30) * bushMaterials.length) % bushMaterials.length]
-      );
-      clump.position.set(
-        Math.cos(angle) * (0.28 + seededRandom(seed + i + 40) * 0.38) * baseScale,
-        (0.42 + seededRandom(seed + i + 50) * 0.28) * baseScale,
-        Math.sin(angle) * (0.28 + seededRandom(seed + i + 60) * 0.38) * baseScale
-      );
-      clump.scale.set(
-        baseScale * (0.8 + seededRandom(seed + i + 70) * 0.55),
-        baseScale * (0.42 + seededRandom(seed + i + 80) * 0.34),
-        baseScale * (0.75 + seededRandom(seed + i + 90) * 0.5)
-      );
-      clump.rotation.set(
-        seededRandom(seed + i + 100) * 0.4,
-        seededRandom(seed + i + 110) * Math.PI * 2,
-        seededRandom(seed + i + 120) * 0.35
-      );
-      clump.castShadow = false;
-      clump.receiveShadow = false;
-      bush.add(clump);
-    }
-
-    bushGroup.add(bush);
-    placed++;
+    if (cluster.children.length === 0) continue;
+    bushGroup.add(cluster);
+    placedClusters++;
   }
 
   scene.add(bushGroup);
+}
+
+function createAppleBaskets() {
+  const basketGroup = new THREE.Group();
+  basketGroup.name = 'apple-baskets';
+
+  const woodMaterial = new THREE.MeshLambertMaterial({ color: 0x7a4a25 });
+  const darkWoodMaterial = new THREE.MeshLambertMaterial({ color: 0x4f2d18 });
+  const appleRedMaterial = new THREE.MeshLambertMaterial({ color: 0xb92a22 });
+  const appleGreenMaterial = new THREE.MeshLambertMaterial({ color: 0x8ea33d });
+  const slatGeometry = new THREE.BoxGeometry(0.13, 0.82, 0.08);
+  const hoopGeometry = new THREE.TorusGeometry(0.82, 0.035, 6, 28);
+  const handleGeometry = new THREE.TorusGeometry(0.62, 0.035, 6, 24, Math.PI);
+  const appleGeometry = new THREE.SphereGeometry(0.13, 8, 6);
+
+  const basketPositions = [
+    [-17, -31],
+    [21, -25],
+    [-28, 16],
+    [34, 14],
+    [3, 34]
+  ];
+
+  for (let b = 0; b < BASKET_COUNT; b++) {
+    const [x, z] = basketPositions[b];
+    const y = getPastureHeight(x, z);
+    const basket = new THREE.Group();
+    basket.position.set(x, y + 0.08, z);
+    basket.rotation.y = seededRandom(9100 + b) * Math.PI * 2;
+
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const slat = new THREE.Mesh(slatGeometry, i % 2 === 0 ? woodMaterial : darkWoodMaterial);
+      slat.position.set(Math.cos(angle) * 0.78, 0.38, Math.sin(angle) * 0.78);
+      slat.rotation.y = -angle;
+      slat.scale.y = 0.82 + seededRandom(9200 + b * 17 + i) * 0.22;
+      basket.add(slat);
+    }
+
+    const bottomHoop = new THREE.Mesh(hoopGeometry, darkWoodMaterial);
+    bottomHoop.position.y = 0.18;
+    bottomHoop.rotation.x = Math.PI / 2;
+    basket.add(bottomHoop);
+
+    const topHoop = new THREE.Mesh(hoopGeometry, darkWoodMaterial);
+    topHoop.position.y = 0.75;
+    topHoop.rotation.x = Math.PI / 2;
+    topHoop.scale.set(1.06, 1.06, 1);
+    basket.add(topHoop);
+
+    const handle = new THREE.Mesh(handleGeometry, darkWoodMaterial);
+    handle.position.y = 0.82;
+    handle.rotation.set(0, Math.PI * 0.5, 0);
+    basket.add(handle);
+
+    for (let i = 0; i < 9; i++) {
+      const seed = 9300 + b * 41 + i;
+      const angle = seededRandom(seed) * Math.PI * 2;
+      const radius = seededRandom(seed + 1) * 0.46;
+      const apple = new THREE.Mesh(seed % 3 === 0 ? appleGeometry : appleGeometry, seededRandom(seed + 2) > 0.78 ? appleGreenMaterial : appleRedMaterial);
+      apple.position.set(Math.cos(angle) * radius, 0.72 + seededRandom(seed + 3) * 0.18, Math.sin(angle) * radius);
+      apple.scale.set(1.05, 0.92, 1);
+      basket.add(apple);
+    }
+
+    basket.scale.setScalar(1.05 + seededRandom(9400 + b) * 0.18);
+    basketGroup.add(basket);
+  }
+
+  scene.add(basketGroup);
 }
 
 function loadGLTF(path) {
@@ -1243,17 +1292,40 @@ function prepareTemplate(template) {
   return template;
 }
 
+function prepareBushTemplate(template) {
+  prepareTemplate(template);
+  template.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(template);
+  const center = box.getCenter(new THREE.Vector3());
+  const height = Math.max(0.1, box.max.y - box.min.y);
+  const wrapper = new THREE.Group();
+  template.position.set(-center.x, -box.min.y, -center.z);
+  wrapper.add(template);
+  bushTemplateHeight = height;
+  return wrapper;
+}
+
 function loadTreeAssetsAndBuildPasture() {
-  setProgress(12, 'Loading orchard trees...');
-  Promise.all(TREE_MODEL_PATHS.map(path => loadGLTF(path)))
-    .then(treeGltfs => {
-      treeTemplates = treeGltfs.map(gltf => prepareTemplate(gltf.scene));
+  setProgress(12, 'Loading orchard trees and bushes...');
+  Promise.allSettled([
+    ...TREE_MODEL_PATHS.map(path => loadGLTF(path)),
+    loadGLTF(BUSH_MODEL_PATH)
+  ])
+    .then(results => {
+      treeTemplates = results
+        .slice(0, TREE_MODEL_PATHS.length)
+        .filter(result => result.status === 'fulfilled')
+        .map(result => prepareTemplate(result.value.scene));
+      const bushResult = results[TREE_MODEL_PATHS.length];
+      bushTemplate = bushResult.status === 'fulfilled' ? prepareBushTemplate(bushResult.value.scene) : null;
+      if (!bushTemplate) console.warn('bush.glb failed to load; skipping pasture bushes.');
       buildPasture();
       loadBunny();
     })
     .catch(err => {
-      console.warn('Orchard tree models failed to load.', err);
+      console.warn('Pasture models failed to load.', err);
       treeTemplates = [];
+      bushTemplate = null;
       buildPasture();
       loadBunny();
     });
@@ -1423,7 +1495,15 @@ function toggleLock() {
 }
 
 function updateAppleHud() {
-  if (applePill) applePill.textContent = 'APPLES ' + appleScore;
+  if (applePill) applePill.textContent = 'APPLES ' + appleScore + '/' + APPLE_GOAL;
+}
+
+function completeLevel() {
+  if (levelComplete) return;
+  levelComplete = true;
+  speed = 0;
+  if (statePill) statePill.textContent = 'LEVEL COMPLETE';
+  if (levelCompleteOverlay) levelCompleteOverlay.classList.remove('hidden');
 }
 
 function formatTimer(seconds) {
@@ -1450,7 +1530,7 @@ function updateDayTimer(elapsed) {
 }
 
 function collectNearestApple() {
-  if (!horse || appleItems.length === 0) return;
+  if (levelComplete || !horse || appleItems.length === 0) return;
 
   let nearest = null;
   let nearestDistanceSq = APPLE_COLLECT_RADIUS * APPLE_COLLECT_RADIUS;
@@ -1471,10 +1551,11 @@ function collectNearestApple() {
   scene.remove(nearest.group);
   appleScore++;
   updateAppleHud();
+  if (appleScore >= APPLE_GOAL) completeLevel();
 }
 
 function startGallop() {
-  if (!horse || clock.elapsedTime < gallopUntil || appleScore < GALLOP_COST) return;
+  if (levelComplete || !horse || clock.elapsedTime < gallopUntil || appleScore < GALLOP_COST) return;
   appleScore -= GALLOP_COST;
   gallopUntil = clock.elapsedTime + GALLOP_SECONDS;
   updateAppleHud();
@@ -1603,7 +1684,7 @@ function updateGhosts(delta, elapsed) {
     const dx = group.position.x - horse.position.x;
     const dz = group.position.z - horse.position.z;
     if (dx * dx + dz * dz < GHOST_STEAL_RADIUS * GHOST_STEAL_RADIUS && elapsed >= ghost.stealReadyAt) {
-      if (appleScore > 0) {
+      if (!levelComplete && appleScore > 0) {
         appleScore = Math.max(0, appleScore - 1);
         updateAppleHud();
       }
@@ -1621,6 +1702,7 @@ const statePill  = document.getElementById('state-pill');
 const speedPill  = document.getElementById('speed-pill');
 const applePill  = document.getElementById('apple-pill');
 const dayTimer   = document.getElementById('day-timer');
+const levelCompleteOverlay = document.getElementById('level-complete');
 updateAppleHud();
 
 function animate() {
@@ -1653,8 +1735,8 @@ function animate() {
     if (keys['ArrowDown'])  camPitch = Math.min(CAM_PITCH_MAX, camPitch + CAM_KEY_SPEED * 0.45 * delta);
 
     // ── WASD: horse turn + move ─────────────────────────────────────────────
-    const turning = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
-    const throttle = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
+    const turning = levelComplete ? 0 : (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
+    const throttle = levelComplete ? 0 : (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
     const galloping = elapsed < gallopUntil;
     const moveSpeed = galloping ? GALLOP_SPEED : MOVE_SPEED;
 
@@ -1698,7 +1780,9 @@ function animate() {
 
     // ── HUD ─────────────────────────────────────────────────────────────────
     const mph = Math.abs(Math.round(speed * 2.237));
-    statePill.textContent = galloping ? 'GALLOP' : (Math.abs(speed) > 0.4 ? 'WALKING' : 'IDLE');
+    if (!levelComplete) {
+      statePill.textContent = galloping ? 'GALLOP' : (Math.abs(speed) > 0.4 ? 'WALKING' : 'IDLE');
+    }
     speedPill.textContent = mph + ' MPH';
 
     // ── Third-person camera ─────────────────────────────────────────────────

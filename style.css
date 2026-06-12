@@ -213,6 +213,46 @@ kbd {
   -webkit-backdrop-filter: blur(4px);
 }
 
+#level-complete {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(8, 6, 4, 0.26);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+#level-complete.hidden {
+  opacity: 0;
+}
+.complete-card {
+  text-align: center;
+  color: #f3dfb8;
+  background: rgba(8, 6, 4, 0.68);
+  border: 1px solid rgba(224, 189, 131, 0.38);
+  border-radius: 6px;
+  padding: 22px 32px;
+}
+.complete-card h2 {
+  color: #e0bd83;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.complete-card p {
+  margin-top: 8px;
+  color: rgba(243, 223, 184, 0.72);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 /* ─── Bottom hints ────────────────────────────────────────────────────────── */
 #hints {
   position: fixed;
