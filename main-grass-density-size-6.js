@@ -63,7 +63,6 @@ const ORCHARD_TREES_PER_ROW = 5;
 const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
-const APPLE_MODEL_PATH = './apple.glb';
 const DAY_LENGTH_SECONDS = 60;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,19 +115,19 @@ scene.add(fill);
 
 const dayColors = {
   morningSky: new THREE.Color(0x8ec8e8),
-  sunsetSky: new THREE.Color(0xff9d6e),
+  sunsetSky: new THREE.Color(0xff8fb8),
   twilightSky: new THREE.Color(0x3d527b),
   morningFog: new THREE.Color(0xb8d8e8),
-  sunsetFog: new THREE.Color(0xf3a176),
+  sunsetFog: new THREE.Color(0xffa3c4),
   twilightFog: new THREE.Color(0x293b5f),
   morningSun: new THREE.Color(0xffe8c0),
-  sunsetSun: new THREE.Color(0xff7a3d),
+  sunsetSun: new THREE.Color(0xff6f9f),
   twilightSun: new THREE.Color(0x526b9f),
   morningAmbient: new THREE.Color(0xfff5e0),
-  sunsetAmbient: new THREE.Color(0xffb07a),
+  sunsetAmbient: new THREE.Color(0xff9fbc),
   twilightAmbient: new THREE.Color(0x5e6f98),
   morningHemisphere: new THREE.Color(0xcfeeff),
-  sunsetHemisphere: new THREE.Color(0xffbe7a),
+  sunsetHemisphere: new THREE.Color(0xffa6d4),
   twilightHemisphere: new THREE.Color(0x435d8d)
 };
 const tempColor = new THREE.Color();
@@ -172,7 +171,6 @@ let bunnyGroundOffset = 0;
 let skyboxModel = null;
 let skyboxOffset = new THREE.Vector3();
 let walkingPathSamples = [];
-let appleTemplate = null;
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -849,18 +847,59 @@ function buildPasture() {
   singleGrass.receiveShadow = false;
   scene.add(singleGrass);
 
+  const appleBodyGeometry = new THREE.SphereGeometry(0.34, 14, 10);
+  const appleStemGeometry = new THREE.CylinderGeometry(0.025, 0.035, 0.22, 5);
+  const appleDimpleGeometry = new THREE.SphereGeometry(0.11, 8, 6);
+  const appleLeafGeometry = new THREE.PlaneGeometry(0.22, 0.11);
+  const appleRedMaterial = new THREE.MeshLambertMaterial({ color: 0xba251f });
+  const appleDeepRedMaterial = new THREE.MeshLambertMaterial({ color: 0x8f1716 });
+  const appleGoldMaterial = new THREE.MeshLambertMaterial({ color: 0xd88c32 });
+  const appleGreenMaterial = new THREE.MeshLambertMaterial({ color: 0x91a83d });
+  const appleStemMaterial = new THREE.MeshLambertMaterial({ color: 0x4b2c17 });
+  const appleLeafMaterial = new THREE.MeshLambertMaterial({ color: 0x3f6f2a, side: THREE.DoubleSide });
+  const appleHighlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffd5c8, transparent: true, opacity: 0.55 });
+
   function addApple(x, y, z, colorSeed) {
     const group = new THREE.Group();
-    if (!appleTemplate) return group;
+    const bodyMaterial = colorSeed > 0.72
+      ? appleGreenMaterial
+      : (colorSeed > 0.42 ? appleRedMaterial : appleDeepRedMaterial);
+    const blushMaterial = colorSeed > 0.72 ? appleGoldMaterial : appleDeepRedMaterial;
 
-    const apple = appleTemplate.clone(true);
-    apple.rotation.set(
-      (colorSeed - 0.5) * 0.45,
+    const body = new THREE.Mesh(appleBodyGeometry, bodyMaterial);
+    body.scale.set(1.03, 0.92, 1.0);
+    body.castShadow = false;
+
+    const blush = new THREE.Mesh(appleDimpleGeometry, blushMaterial);
+    blush.position.set(0.14, 0.02, 0.28);
+    blush.scale.set(0.95, 0.75, 0.2);
+
+    const topDimple = new THREE.Mesh(appleDimpleGeometry, appleDeepRedMaterial);
+    topDimple.position.y = 0.27;
+    topDimple.scale.set(1.1, 0.28, 1.1);
+
+    const bottomDimple = new THREE.Mesh(appleDimpleGeometry, appleDeepRedMaterial);
+    bottomDimple.position.y = -0.29;
+    bottomDimple.scale.set(0.9, 0.18, 0.9);
+
+    const stem = new THREE.Mesh(appleStemGeometry, appleStemMaterial);
+    stem.position.y = 0.42;
+    stem.rotation.z = 0.25;
+
+    const leaf = new THREE.Mesh(appleLeafGeometry, appleLeafMaterial);
+    leaf.position.set(0.12, 0.46, 0.02);
+    leaf.rotation.set(-0.55, colorSeed * Math.PI, 0.35);
+
+    const highlight = new THREE.Mesh(appleDimpleGeometry, appleHighlightMaterial);
+    highlight.position.set(0.16, 0.12, 0.27);
+    highlight.scale.set(0.42, 0.24, 0.08);
+
+    group.add(body, blush, topDimple, bottomDimple, stem, leaf, highlight);
+    group.rotation.set(
+      (colorSeed - 0.5) * 0.35,
       colorSeed * Math.PI * 2,
-      (seededRandom(colorSeed * 1000) - 0.5) * 0.35
+      (seededRandom(colorSeed * 1000) - 0.5) * 0.25
     );
-    apple.scale.setScalar(0.42 + colorSeed * 0.12);
-    group.add(apple);
     group.position.set(x, y, z);
     group.userData.baseY = y;
     group.userData.spin = 0.7 + colorSeed * 0.8;
@@ -1028,41 +1067,17 @@ function prepareTemplate(template) {
   return template;
 }
 
-function prepareAppleTemplate(template) {
-  template.traverse(child => {
-    if (child.isMesh) {
-      child.castShadow = false;
-      child.receiveShadow = false;
-    }
-  });
-
-  template.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(template);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxAxis = Math.max(size.x, size.y, size.z, 0.001);
-  const normalizer = 0.85 / maxAxis;
-  template.scale.setScalar(normalizer);
-  template.position.copy(center).multiplyScalar(-normalizer);
-  return template;
-}
-
 function loadTreeAssetsAndBuildPasture() {
-  setProgress(12, 'Loading orchard assets...');
-  Promise.all([
-    Promise.all(TREE_MODEL_PATHS.map(path => loadGLTF(path))),
-    loadGLTF(APPLE_MODEL_PATH)
-  ])
-    .then(([treeGltfs, appleGltf]) => {
+  setProgress(12, 'Loading orchard trees...');
+  Promise.all(TREE_MODEL_PATHS.map(path => loadGLTF(path)))
+    .then(treeGltfs => {
       treeTemplates = treeGltfs.map(gltf => prepareTemplate(gltf.scene));
-      appleTemplate = prepareAppleTemplate(appleGltf.scene);
       buildPasture();
       loadBunny();
     })
     .catch(err => {
-      console.warn('Orchard assets failed to load.', err);
+      console.warn('Orchard tree models failed to load.', err);
       treeTemplates = [];
-      appleTemplate = null;
       buildPasture();
       loadBunny();
     });
