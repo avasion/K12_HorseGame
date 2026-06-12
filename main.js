@@ -18,7 +18,7 @@ const MODEL_ROT_Y    = Math.PI;        // rotation Y — faces away from default
 const MODEL_ROT_Z    = 0;             // rotation Z
 
 // Scale
-const HORSE_SCALE    = 1.0;    // scale horse to ~real-world 1.6m shoulder height
+const HORSE_SCALE    = 1.5;    // make the horse read larger against the pasture
 
 // Movement
 const MOVE_SPEED     = 6.5;    // m/s at full walk
@@ -38,7 +38,7 @@ const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 // Pasture
 const PASTURE_SIZE = 280;
 const PASTURE_SEGMENTS = 120;
-const GRASS_CLUSTER_COUNT = 4200;
+const GRASS_CLUSTER_COUNT = 42000;
 const STREAM_WIDTH = 5.2;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -283,8 +283,8 @@ function buildPasture() {
 
     const y = getPastureHeight(x, z) + 0.02;
     const yaw = seededRandom(attempts * 3 + 3) * Math.PI * 2;
-    const height = 0.75 + seededRandom(attempts * 3 + 4) * 1.15;
-    const spread = 0.75 + seededRandom(attempts * 3 + 5) * 1.2;
+    const height = 0.075 + seededRandom(attempts * 3 + 4) * 0.115;
+    const spread = 0.075 + seededRandom(attempts * 3 + 5) * 0.12;
     quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
     scale.set(spread, height, spread);
     matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
