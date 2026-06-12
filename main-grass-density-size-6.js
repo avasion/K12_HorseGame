@@ -40,13 +40,14 @@ const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 // Pasture
 const PASTURE_SIZE = 280;
 const PASTURE_SEGMENTS = 120;
-const GRASS_CLUSTER_COUNT = 150000;
+const GRASS_CLUSTER_COUNT = 300000;
 const GRASS_MIN_HEIGHT = 0.34;
-const GRASS_MAX_HEIGHT = 0.82;
+const GRASS_MAX_HEIGHT = 0.72;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const STREAM_WIDTH = 5.2;
 const PERIMETER_TREE_COUNT = 118;
 const PERIMETER_RAIL_COUNT = 72;
+const GRASS_COLOR_PALETTE = [0x1d4600, 0x4f9900, 0x82c23a, 0xd7e356, 0xa5c940];
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -169,6 +170,17 @@ function distanceToStream(x, z) {
 function seededRandom(seed) {
   const x = Math.sin(seed * 12.9898) * 43758.5453;
   return x - Math.floor(x);
+}
+
+function getGrassColor(seedA, seedB, x, z) {
+  const colorIndex = Math.floor(seedA * GRASS_COLOR_PALETTE.length) % GRASS_COLOR_PALETTE.length;
+  const color = new THREE.Color(GRASS_COLOR_PALETTE[colorIndex]);
+  const neighbor = new THREE.Color(GRASS_COLOR_PALETTE[(colorIndex + 1) % GRASS_COLOR_PALETTE.length]);
+  const fieldNoise = (Math.sin(x * 0.08) + Math.cos(z * 0.07)) * 0.5 + seedB;
+
+  color.lerp(neighbor, Math.max(0, Math.min(0.32, fieldNoise * 0.16)));
+  color.offsetHSL(0, (seedB - 0.5) * 0.08, (seedA - 0.5) * 0.12);
+  return color;
 }
 
 function getBoundaryScale(angle) {
@@ -347,7 +359,8 @@ function buildPasture() {
 
   const grassClusterGeometry = createGrassClusterGeometry();
   const grassClusterMaterial = new THREE.MeshLambertMaterial({
-    color: 0x75b843,
+    color: 0xffffff,
+    vertexColors: true,
     side: THREE.DoubleSide
   });
   grassClusters = new THREE.InstancedMesh(grassClusterGeometry, grassClusterMaterial, GRASS_CLUSTER_COUNT);
@@ -355,6 +368,7 @@ function buildPasture() {
   const matrix = new THREE.Matrix4();
   const quaternion = new THREE.Quaternion();
   const scale = new THREE.Vector3();
+  const instanceColor = new THREE.Color();
   let placedClusters = 0;
   let attempts = 0;
 
@@ -369,6 +383,7 @@ function buildPasture() {
     const yaw = seededRandom(attempts * 3 + 3) * Math.PI * 2;
     const heightSeed = seededRandom(attempts * 3 + 4);
     const spreadSeed = seededRandom(attempts * 3 + 5);
+    const colorSeed = seededRandom(attempts * 3 + 6);
     const targetHeight = GRASS_MIN_HEIGHT + heightSeed * (GRASS_MAX_HEIGHT - GRASS_MIN_HEIGHT);
     const height = targetHeight / GRASS_GEOMETRY_MAX_HEIGHT;
     const spread = height * (0.62 + spreadSeed * 0.52);
@@ -376,13 +391,16 @@ function buildPasture() {
     scale.set(spread, height, spread);
     matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
     grassClusters.setMatrixAt(placedClusters, matrix);
+    grassClusters.setColorAt(placedClusters, instanceColor.copy(getGrassColor(colorSeed, spreadSeed, x, z)));
     grassInstanceData.push({ x, y, z, yaw, heightSeed, spreadSeed });
     placedClusters++;
   }
 
   grassClusters.count = placedClusters;
   grassClusters.instanceMatrix.needsUpdate = true;
-  grassClusters.castShadow = true;
+  grassClusters.instanceColor.needsUpdate = true;
+  grassClusters.castShadow = false;
+  grassClusters.receiveShadow = false;
   scene.add(grassClusters);
 
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x6a3f1f });
@@ -447,7 +465,7 @@ function buildPasture() {
 
   for (let i = 0; i < PERIMETER_TREE_COUNT; i++) {
     const angle = (i / PERIMETER_TREE_COUNT) * Math.PI * 2 + seededRandom(i + 80) * 0.032;
-    const inset = -5 - seededRandom(i + 90) * 9;
+    const inset = 7 + seededRandom(i + 90) * 8;
     const point = getPastureBoundaryPoint(angle, inset);
     const size = 0.78 + seededRandom(i + 100) * 0.62;
     addTree(point.x, point.z, false, size);
