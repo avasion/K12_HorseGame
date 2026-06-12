@@ -63,7 +63,11 @@ const ORCHARD_TREES_PER_ROW = 5;
 const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
-const DAY_LENGTH_SECONDS = 60;
+const DAY_LENGTH_SECONDS = 120;
+const NIGHT_START = 0.78;
+const GHOST_COUNT = 4;
+const GHOST_STEAL_RADIUS = 3.1;
+const GHOST_STEAL_COOLDOWN = 2.8;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -131,6 +135,9 @@ const dayColors = {
   twilightHemisphere: new THREE.Color(0x435d8d)
 };
 const tempColor = new THREE.Color();
+const grassDayTint = new THREE.Color(0xffffff);
+const grassSunsetTint = new THREE.Color(0xb07c78);
+const grassNightTint = new THREE.Color(0x334866);
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  PASTURE GROUND
@@ -157,8 +164,12 @@ let activeAction = null;
 let horseGroundOffset = 0;
 let grassClusters = null;
 let grassInstanceData = [];
+let grassClusterMaterial = null;
+let singleGrassMaterial = null;
 let appleItems = [];
 let appleScore = 0;
+let ghosts = [];
+let dayProgress = 0;
 let treeTemplates = [];
 let bunny = null;
 let bunnyMixer = null;
@@ -297,6 +308,7 @@ function distanceToWalkingPath(x, z) {
 
 function updateDayCycle(elapsed) {
   const t = Math.min(1, elapsed / DAY_LENGTH_SECONDS);
+  dayProgress = t;
   const sunsetStart = 0.48;
   const twilightStart = 0.78;
 
@@ -368,6 +380,24 @@ function updateDayCycle(elapsed) {
   hemi.intensity = hemiIntensity;
   fill.intensity = Math.max(0.08, 0.18 - t * 0.08);
   renderer.toneMappingExposure = exposure;
+
+  if (grassClusterMaterial && singleGrassMaterial) {
+    let grassTint = grassDayTint;
+    let grassBlend = 0;
+    if (t >= sunsetStart && t < twilightStart) {
+      grassTint = grassSunsetTint;
+      grassBlend = eased;
+      tempColor.copy(grassDayTint).lerp(grassTint, grassBlend);
+    } else if (t >= twilightStart) {
+      grassTint = grassNightTint;
+      grassBlend = eased;
+      tempColor.copy(grassSunsetTint).lerp(grassTint, grassBlend);
+    } else {
+      tempColor.copy(grassDayTint);
+    }
+    grassClusterMaterial.color.copy(tempColor);
+    singleGrassMaterial.color.copy(tempColor);
+  }
 
   const sunAngle = THREE.MathUtils.lerp(1.1, -0.18, t);
   sun.position.set(Math.cos(sunAngle) * 80, Math.max(8, Math.sin(sunAngle) * 90), 42);
@@ -758,7 +788,7 @@ function buildPasture() {
   }
 
   const grassClusterGeometry = createGrassClusterGeometry();
-  const grassClusterMaterial = new THREE.MeshBasicMaterial({
+  grassClusterMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     vertexColors: true,
     toneMapped: false,
@@ -806,7 +836,7 @@ function buildPasture() {
   scene.add(grassClusters);
 
   const singleGrassGeometry = createSingleGrassGeometry();
-  const singleGrassMaterial = new THREE.MeshBasicMaterial({
+  singleGrassMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     vertexColors: true,
     toneMapped: false,
@@ -1046,9 +1076,74 @@ function buildPasture() {
     scene.add(rock);
   }
 
+  createGhosts();
   setHorseOnGround();
   setProgress(48, 'Pasture ready.');
   assetLoaded();
+}
+
+function createGhosts() {
+  for (const ghost of ghosts) {
+    scene.remove(ghost.group);
+  }
+  ghosts = [];
+
+  const bodyGeometry = new THREE.SphereGeometry(0.72, 18, 12);
+  const tailGeometry = new THREE.ConeGeometry(0.52, 0.95, 14);
+  const eyeGeometry = new THREE.SphereGeometry(0.075, 8, 6);
+  const wispGeometry = new THREE.SphereGeometry(0.18, 8, 6);
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0x1d2540 });
+
+  for (let i = 0; i < GHOST_COUNT; i++) {
+    const seed = 7000 + i * 113;
+    const ghostMaterial = new THREE.MeshBasicMaterial({
+      color: i % 2 === 0 ? 0xdce8ff : 0xf3ddff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false
+    });
+
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(bodyGeometry, ghostMaterial);
+    body.scale.set(0.9, 1.15, 0.78);
+    body.position.y = 0.45;
+
+    const tail = new THREE.Mesh(tailGeometry, ghostMaterial);
+    tail.position.y = -0.45;
+    tail.rotation.x = Math.PI;
+    tail.scale.set(0.9, 1, 0.9);
+
+    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+    leftEye.position.set(-0.2, 0.68, -0.56);
+    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+    rightEye.position.set(0.2, 0.68, -0.56);
+
+    group.add(body, tail, leftEye, rightEye);
+    for (let j = 0; j < 3; j++) {
+      const wisp = new THREE.Mesh(wispGeometry, ghostMaterial);
+      wisp.position.set((j - 1) * 0.36, -0.7 - seededRandom(seed + j) * 0.18, -0.06);
+      wisp.scale.setScalar(0.75 + seededRandom(seed + j + 10) * 0.45);
+      group.add(wisp);
+    }
+
+    const angle = (i / GHOST_COUNT) * Math.PI * 2;
+    const start = getPastureBoundaryPoint(angle, 42);
+    group.position.set(start.x, getPastureHeight(start.x, start.z) + 4.2, start.z);
+    group.visible = false;
+    group.renderOrder = 20;
+    scene.add(group);
+
+    ghosts.push({
+      group,
+      material: ghostMaterial,
+      seed,
+      angle,
+      radiusX: 28 + seededRandom(seed + 1) * 22,
+      radiusZ: 22 + seededRandom(seed + 2) * 18,
+      stealReadyAt: 0
+    });
+  }
 }
 
 function loadGLTF(path) {
@@ -1367,6 +1462,52 @@ function updateBunny(delta, elapsed) {
   if (bunnyMixer) bunnyMixer.update(delta);
 }
 
+function updateGhosts(delta, elapsed) {
+  if (ghosts.length === 0) return;
+
+  const nightAmount = THREE.MathUtils.clamp((dayProgress - NIGHT_START) / (1 - NIGHT_START), 0, 1);
+  const active = nightAmount > 0.01;
+  const fade = nightAmount * nightAmount * (3 - 2 * nightAmount);
+  const baseX = horse ? horse.position.x * 0.25 : 0;
+  const baseZ = horse ? horse.position.z * 0.25 : 0;
+
+  for (const ghost of ghosts) {
+    const group = ghost.group;
+    group.visible = active;
+    ghost.material.opacity = active ? 0.18 + fade * 0.46 : 0;
+    if (!active) continue;
+
+    const speedA = elapsed * (0.28 + seededRandom(ghost.seed + 3) * 0.12) + ghost.angle;
+    const speedB = elapsed * (0.38 + seededRandom(ghost.seed + 4) * 0.16) + ghost.seed * 0.004;
+    const targetX = baseX + Math.cos(speedA) * ghost.radiusX + Math.sin(speedB * 0.7) * 7;
+    const targetZ = baseZ + Math.sin(speedA * 0.92) * ghost.radiusZ + Math.cos(speedB) * 6;
+    const clampedTarget = new THREE.Vector3(targetX, 0, targetZ);
+    clampToPasture(clampedTarget, 28);
+
+    const targetY = getPastureHeight(clampedTarget.x, clampedTarget.z) + 3.3 + Math.sin(elapsed * 1.7 + ghost.seed) * 0.75;
+    const follow = 1 - Math.pow(0.025, delta);
+    group.position.x += (clampedTarget.x - group.position.x) * follow;
+    group.position.y += (targetY - group.position.y) * follow;
+    group.position.z += (clampedTarget.z - group.position.z) * follow;
+    group.rotation.y = Math.atan2(
+      horse ? horse.position.x - group.position.x : -Math.sin(speedA),
+      horse ? horse.position.z - group.position.z : -Math.cos(speedA)
+    );
+    group.rotation.z = Math.sin(elapsed * 2.1 + ghost.seed) * 0.08;
+
+    if (!horse) continue;
+    const dx = group.position.x - horse.position.x;
+    const dz = group.position.z - horse.position.z;
+    if (dx * dx + dz * dz < GHOST_STEAL_RADIUS * GHOST_STEAL_RADIUS && elapsed >= ghost.stealReadyAt) {
+      if (appleScore > 0) {
+        appleScore = Math.max(0, appleScore - 1);
+        updateAppleHud();
+      }
+      ghost.stealReadyAt = elapsed + GHOST_STEAL_COOLDOWN;
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  GAME LOOP
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1391,6 +1532,7 @@ function animate() {
   }
 
   updateBunny(delta, elapsed);
+  updateGhosts(delta, elapsed);
 
   if (skyboxModel) {
     skyboxModel.position.copy(camera.position).add(skyboxOffset);
