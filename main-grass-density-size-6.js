@@ -55,6 +55,7 @@ const ORCHARD_ROW_COUNT = 6;
 const ORCHARD_TREES_PER_ROW = 7;
 const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
+const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -137,6 +138,8 @@ let bunnyActiveAction = null;
 let bunnyTarget = new THREE.Vector3(18, 0, 18);
 let bunnyPauseUntil = 0;
 let bunnyGroundOffset = 0;
+let skyboxModel = null;
+let skyboxOffset = new THREE.Vector3();
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -170,6 +173,47 @@ function assetLoaded() {
 }
 
 const gltfLoader = new GLTFLoader();
+
+function loadSkybox() {
+  gltfLoader.load(
+    SKYBOX_MODEL_PATH,
+    (gltf) => {
+      skyboxModel = gltf.scene;
+      skyboxModel.traverse(child => {
+        if (!child.isMesh) return;
+
+        child.castShadow = false;
+        child.receiveShadow = false;
+        child.frustumCulled = false;
+        child.renderOrder = -1000;
+        if (child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          for (const material of materials) {
+            material.side = THREE.DoubleSide;
+            material.depthWrite = false;
+            material.fog = false;
+          }
+        }
+      });
+
+      skyboxModel.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(skyboxModel);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const maxAxis = Math.max(size.x, size.y, size.z, 1);
+      const scale = 950 / maxAxis;
+      skyboxModel.scale.setScalar(scale);
+      skyboxOffset.copy(center).multiplyScalar(-scale);
+      skyboxModel.position.copy(skyboxOffset);
+      skyboxModel.frustumCulled = false;
+      scene.add(skyboxModel);
+    },
+    undefined,
+    (err) => console.warn('Skybox model failed to load.', err)
+  );
+}
+
+loadSkybox();
 
 function getPastureHeight(x, z) {
   const rolling = Math.sin(x * 0.035) * 0.35 + Math.cos(z * 0.028) * 0.28;
@@ -952,6 +996,10 @@ function animate() {
   }
 
   updateBunny(delta, elapsed);
+
+  if (skyboxModel) {
+    skyboxModel.position.copy(camera.position).add(skyboxOffset);
+  }
 
   if (horse) {
 
