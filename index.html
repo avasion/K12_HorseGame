@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horse Riding Simulator</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Three.js via importmap — no build step needed, works on Netlify -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script>
+    window.__simErrors = [];
+    window.addEventListener('error', (event) => {
+      window.__simErrors.push(event.message || 'Unknown browser error');
+      const loadingText = document.getElementById('loading-text');
+      if (loadingText) loadingText.textContent = 'Error loading simulator. Check console.';
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event.reason && (event.reason.message || String(event.reason));
+      window.__simErrors.push(reason || 'Unhandled promise rejection');
+      const loadingText = document.getElementById('loading-text');
+      if (loadingText) loadingText.textContent = 'Error loading simulator. Check console.';
+    });
+  </script>
+</head>
+<body>
+
+  <!-- Loading screen -->
+  <div id="loading">
+    <div class="loader-inner">
+      <div class="horse-icon">🐴</div>
+      <h1>Horse Riding Simulator</h1>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <p id="loading-text">Initializing…</p>
+    </div>
+  </div>
+
+  <!-- Pointer-lock splash -->
+  <div id="lock-overlay">
+    <div class="lock-card">
+      <h2>🐴 Horse Riding Simulator</h2>
+      <p>Click or press <kbd>SPACE</kbd> to ride</p>
+      <div class="key-guide">
+        <div><kbd>W A S D</kbd> — Move / Turn</div>
+        <div><kbd>↑ ↓ ← →</kbd> — Look around</div>
+        <div><kbd>SPACE</kbd> — Lock / Unlock cursor</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Crosshair (only visible when locked) -->
+  <div id="crosshair"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="state-pill">IDLE</div>
+    <div id="speed-pill">0 MPH</div>
+  </div>
+
+  <!-- Bottom control hints -->
+  <div id="hints">
+    <span>WASD · Move</span>
+    <span>↑↓←→ · Look</span>
+    <span>SPACE · Lock / Unlock</span>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+/* ─── Reset ──────────────────────────────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #080604;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+#canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  cursor: none;
+}
+
+/* ─── Loading ─────────────────────────────────────────────────────────────── */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: #0d0b08;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  transition: opacity 0.7s ease;
+}
+#loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loader-inner {
+  text-align: center;
+  color: #f0e5d0;
+  max-width: 320px;
+}
+
+.horse-icon {
+  font-size: 3.5rem;
+  display: block;
+  margin-bottom: 1rem;
+  animation: float 1.4s ease-in-out infinite alternate;
+}
+@keyframes float {
+  from { transform: translateY(0px); }
+  to   { transform: translateY(-12px); }
+}
+
+.loader-inner h1 {
+  font-size: 1.6rem;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c8a06a;
+  margin-bottom: 1.8rem;
+}
+
+.progress-bar {
+  width: 240px;
+  height: 3px;
+  background: #221e18;
+  border-radius: 2px;
+  margin: 0 auto 0.9rem;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #c8a06a, #e8c48a);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.35s ease;
+}
+
+#loading-text {
+  font-size: 0.8rem;
+  color: #6a5a48;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* ─── Lock Overlay ────────────────────────────────────────────────────────── */
+#lock-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 4, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: opacity 0.3s ease;
+}
+#lock-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lock-card {
+  text-align: center;
+  color: #f0e5d0;
+  padding: 2.5rem 3rem;
+  border: 1px solid rgba(200, 160, 106, 0.2);
+  border-radius: 4px;
+  background: rgba(20, 16, 10, 0.6);
+}
+.lock-card h2 {
+  font-size: 1.7rem;
+  font-weight: 300;
+  color: #c8a06a;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.6rem;
+}
+.lock-card > p {
+  font-size: 0.95rem;
+  color: #8a7a68;
+  margin-bottom: 1.8rem;
+}
+
+.key-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.key-guide div {
+  font-size: 0.8rem;
+  color: #6a5a48;
+  letter-spacing: 0.04em;
+}
+
+kbd {
+  display: inline-block;
+  background: #1e1a14;
+  border: 1px solid #3a3228;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 7px;
+  font-family: 'Consolas', monospace;
+  font-size: 0.78rem;
+  color: #c8a06a;
+  letter-spacing: 0.03em;
+}
+
+/* ─── Crosshair ───────────────────────────────────────────────────────────── */
+#crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+#crosshair.visible { opacity: 1; }
+#crosshair::before,
+#crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 1px;
+}
+#crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+#crosshair::after  { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
+
+/* ─── HUD ─────────────────────────────────────────────────────────────────── */
+#hud {
+  position: fixed;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.75rem;
+  z-index: 50;
+  pointer-events: none;
+}
+
+#state-pill,
+#speed-pill {
+  background: rgba(8, 6, 4, 0.65);
+  border: 1px solid rgba(200, 160, 106, 0.28);
+  color: #c8a06a;
+  padding: 5px 18px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ─── Bottom hints ────────────────────────────────────────────────────────── */
+#hints {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2rem;
+  z-index: 50;
+  pointer-events: none;
+  white-space: nowrap;
+}
+#hints span {
+  font-size: 0.68rem;
+  color: rgba(200, 160, 106, 0.4);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
