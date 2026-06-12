@@ -423,6 +423,47 @@ function buildPasture() {
   grassClusters.receiveShadow = false;
   scene.add(grassClusters);
 
+  const singleGrassGeometry = createSingleGrassGeometry();
+  const singleGrassMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    toneMapped: false,
+    side: THREE.DoubleSide
+  });
+  const singleGrass = new THREE.InstancedMesh(singleGrassGeometry, singleGrassMaterial, SINGLE_GRASS_COUNT);
+  let placedSingles = 0;
+  let singleAttempts = 0;
+
+  while (placedSingles < SINGLE_GRASS_COUNT && singleAttempts < SINGLE_GRASS_COUNT * 6) {
+    singleAttempts++;
+    const x = (seededRandom(singleAttempts * 5 + 11) - 0.5) * (PASTURE_RADIUS_X * 2.0);
+    const z = (seededRandom(singleAttempts * 5 + 12) - 0.5) * (PASTURE_RADIUS_Z * 2.0);
+    if (!isInsidePasture(x, z, PASTURE_MARGIN + 1)) continue;
+    if (distanceToStream(x, z) < STREAM_WIDTH + 0.9) continue;
+
+    const y = getPastureHeight(x, z) + 0.028;
+    const yaw = seededRandom(singleAttempts * 5 + 13) * Math.PI * 2;
+    const heightSeed = seededRandom(singleAttempts * 5 + 14);
+    const widthSeed = seededRandom(singleAttempts * 5 + 15);
+    const colorSeed = seededRandom(singleAttempts * 5 + 16);
+    const height = (0.22 + heightSeed * 0.36) / SINGLE_GRASS_GEOMETRY_MAX_HEIGHT;
+    const width = 0.65 + widthSeed * 0.7;
+
+    quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
+    scale.set(width, height, width);
+    matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
+    singleGrass.setMatrixAt(placedSingles, matrix);
+    singleGrass.setColorAt(placedSingles, instanceColor.copy(getGrassColor(colorSeed, widthSeed, x, z)));
+    placedSingles++;
+  }
+
+  singleGrass.count = placedSingles;
+  singleGrass.instanceMatrix.needsUpdate = true;
+  if (singleGrass.instanceColor) singleGrass.instanceColor.needsUpdate = true;
+  singleGrass.castShadow = false;
+  singleGrass.receiveShadow = false;
+  scene.add(singleGrass);
+
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x6a3f1f });
   const leafMaterial = new THREE.MeshLambertMaterial({ color: 0x2f6b35 });
   const leafDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x1f4f2e });
