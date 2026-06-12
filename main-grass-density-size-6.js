@@ -175,14 +175,9 @@ function seededRandom(seed) {
 }
 
 function getGrassColor(seedA, seedB, x, z) {
-  const colorIndex = Math.floor(seedA * GRASS_COLOR_PALETTE.length) % GRASS_COLOR_PALETTE.length;
-  const color = new THREE.Color(GRASS_COLOR_PALETTE[colorIndex]);
-  const neighbor = new THREE.Color(GRASS_COLOR_PALETTE[(colorIndex + 1) % GRASS_COLOR_PALETTE.length]);
-  const fieldNoise = (Math.sin(x * 0.08) + Math.cos(z * 0.07)) * 0.5 + seedB;
-
-  color.lerp(neighbor, Math.max(0, Math.min(0.32, fieldNoise * 0.16)));
-  color.offsetHSL(0, (seedB - 0.5) * 0.08, (seedA - 0.5) * 0.12);
-  return color;
+  const fieldBand = Math.sin(x * 0.055) + Math.cos(z * 0.045) + seedB * 1.8;
+  const colorIndex = Math.abs(Math.floor((seedA + fieldBand) * GRASS_COLOR_PALETTE.length)) % GRASS_COLOR_PALETTE.length;
+  return new THREE.Color(GRASS_COLOR_PALETTE[colorIndex]);
 }
 
 function getBoundaryScale(angle) {
@@ -227,6 +222,7 @@ function clampToPasture(point, inset = PASTURE_MARGIN) {
 function createGrassClusterGeometry() {
   const positions = [];
   const indices = [];
+  const colors = [];
   const bladeCount = 11;
 
   for (let i = 0; i < bladeCount; i++) {
@@ -247,12 +243,33 @@ function createGrassClusterGeometry() {
       rootX + sideX, 0, rootZ + sideZ,
       tipX, height, tipZ
     );
+    colors.push(1, 1, 1, 1, 1, 1, 1, 1, 1);
     indices.push(base, base + 1, base + 2);
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createSingleGrassGeometry() {
+  const positions = [
+    -0.035, 0, 0,
+     0.035, 0, 0,
+     0.0, 1.0, 0.045
+  ];
+  const colors = [
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex([0, 1, 2]);
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -360,9 +377,10 @@ function buildPasture() {
   scene.add(stream);
 
   const grassClusterGeometry = createGrassClusterGeometry();
-  const grassClusterMaterial = new THREE.MeshLambertMaterial({
+  const grassClusterMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     vertexColors: true,
+    toneMapped: false,
     side: THREE.DoubleSide
   });
   grassClusters = new THREE.InstancedMesh(grassClusterGeometry, grassClusterMaterial, GRASS_CLUSTER_COUNT);
