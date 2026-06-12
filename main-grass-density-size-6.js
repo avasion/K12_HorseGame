@@ -126,6 +126,7 @@ let grassClusters = null;
 let grassInstanceData = [];
 let appleItems = [];
 let appleScore = 0;
+let treeTemplate = null;
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -591,6 +592,50 @@ function buildPasture() {
     }
   }
 
+  function addModelAppleTree(x, z, seed = 1, targetHeight = 11) {
+    if (!treeTemplate) {
+      addAppleTree(x, z, seed, targetHeight / 10.5);
+      return;
+    }
+
+    const y = getPastureHeight(x, z);
+    const tree = treeTemplate.clone(true);
+    tree.rotation.y = seededRandom(seed + 70) * Math.PI * 2;
+    tree.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    tree.updateMatrixWorld(true);
+    const sourceBox = new THREE.Box3().setFromObject(tree);
+    const sourceSize = sourceBox.getSize(new THREE.Vector3());
+    const sourceHeight = Math.max(1, sourceSize.y);
+    const modelScale = targetHeight / sourceHeight;
+    tree.scale.setScalar(modelScale);
+    tree.updateMatrixWorld(true);
+
+    const scaledBox = new THREE.Box3().setFromObject(tree);
+    const center = scaledBox.getCenter(new THREE.Vector3());
+    tree.position.set(x - center.x, y - scaledBox.min.y, z - center.z);
+    tree.userData.isOrchardTree = true;
+    scene.add(tree);
+
+    const appleCount = 12;
+    for (let i = 0; i < appleCount; i++) {
+      const angle = seededRandom(seed + i * 19) * Math.PI * 2;
+      const radius = (1.4 + seededRandom(seed + i * 23) * 3.4) * (targetHeight / 11);
+      const height = y + targetHeight * (0.45 + seededRandom(seed + i * 29) * 0.36);
+      addApple(
+        x + Math.cos(angle) * radius,
+        height,
+        z + Math.sin(angle) * radius,
+        seededRandom(seed + i * 31)
+      );
+    }
+  }
+
   const fenceMaterial = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });
   const postGeometry = new THREE.CylinderGeometry(0.18, 0.24, 1.7, 7);
   const railGeometry = new THREE.BoxGeometry(1, 0.16, 0.18);
@@ -638,7 +683,7 @@ function buildPasture() {
       const treeZ = z + jitterZ;
       if (!isInsidePasture(treeX, treeZ, 24)) continue;
       if (distanceToStream(treeX, treeZ) < STREAM_WIDTH + 8) continue;
-      addAppleTree(treeX, treeZ, seed, 0.86 + seededRandom(seed + 2) * 0.34);
+      addModelAppleTree(treeX, treeZ, seed, 9.8 + seededRandom(seed + 2) * 2.4);
     }
   }
 
@@ -659,7 +704,32 @@ function buildPasture() {
   assetLoaded();
 }
 
-buildPasture();
+function loadTreeAssetAndBuildPasture() {
+  setProgress(12, 'Loading orchard trees...');
+  gltfLoader.load(
+    './tree.glb',
+    (gltf) => {
+      treeTemplate = gltf.scene;
+      treeTemplate.traverse(child => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      buildPasture();
+    },
+    (xhr) => {
+      if (xhr.total) setProgress(12 + (xhr.loaded / xhr.total) * 8, 'Loading orchard trees...');
+    },
+    (err) => {
+      console.warn('tree.glb not found - using procedural orchard fallback.', err);
+      treeTemplate = null;
+      buildPasture();
+    }
+  );
+}
+
+loadTreeAssetAndBuildPasture();
 
 // ── Horse ────────────────────────────────────────────────────────────────────
 setProgress(50, 'Loading horse…');
