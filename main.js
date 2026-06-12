@@ -38,8 +38,9 @@ const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 // Pasture
 const PASTURE_SIZE = 280;
 const PASTURE_SEGMENTS = 120;
-const GRASS_CLUSTER_COUNT = 42000;
-const GRASS_HEIGHT_TO_HORSE = 0.065;
+const GRASS_CLUSTER_COUNT = 84000;
+const GRASS_MIN_HEIGHT = 0.1;
+const GRASS_MAX_HEIGHT = 0.4;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const STREAM_WIDTH = 5.2;
 
@@ -219,14 +220,9 @@ function getHorseWorldHeight() {
   return box.getSize(new THREE.Vector3()).y;
 }
 
-function rescaleGrassToHorse() {
+function applyGrassSizeVariation() {
   if (!grassClusters || grassInstanceData.length === 0) return;
 
-  const horseHeight = getHorseWorldHeight();
-  if (!Number.isFinite(horseHeight) || horseHeight <= 0) return;
-
-  const maxGrassBladeHeight = horseHeight * GRASS_HEIGHT_TO_HORSE;
-  const maxGrassScaleY = maxGrassBladeHeight / GRASS_GEOMETRY_MAX_HEIGHT;
   const matrix = new THREE.Matrix4();
   const quaternion = new THREE.Quaternion();
   const scale = new THREE.Vector3();
@@ -235,8 +231,9 @@ function rescaleGrassToHorse() {
     const blade = grassInstanceData[i];
     quaternion.setFromEuler(new THREE.Euler(0, blade.yaw, 0));
 
-    const heightScale = maxGrassScaleY * (0.65 + blade.heightSeed * 0.35);
-    const spreadScale = heightScale * (0.7 + blade.spreadSeed * 0.5);
+    const targetHeight = GRASS_MIN_HEIGHT + blade.heightSeed * (GRASS_MAX_HEIGHT - GRASS_MIN_HEIGHT);
+    const heightScale = targetHeight / GRASS_GEOMETRY_MAX_HEIGHT;
+    const spreadScale = heightScale * (0.45 + blade.spreadSeed * 0.35);
     scale.set(spreadScale, heightScale, spreadScale);
     matrix.compose(new THREE.Vector3(blade.x, blade.y, blade.z), quaternion, scale);
     grassClusters.setMatrixAt(i, matrix);
@@ -323,8 +320,9 @@ function buildPasture() {
     const yaw = seededRandom(attempts * 3 + 3) * Math.PI * 2;
     const heightSeed = seededRandom(attempts * 3 + 4);
     const spreadSeed = seededRandom(attempts * 3 + 5);
-    const height = 0.012 + heightSeed * 0.014;
-    const spread = 0.008 + spreadSeed * 0.010;
+    const targetHeight = GRASS_MIN_HEIGHT + heightSeed * (GRASS_MAX_HEIGHT - GRASS_MIN_HEIGHT);
+    const height = targetHeight / GRASS_GEOMETRY_MAX_HEIGHT;
+    const spread = height * (0.45 + spreadSeed * 0.35);
     quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
     scale.set(spread, height, spread);
     matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
@@ -455,7 +453,7 @@ gltfLoader.load(
     });
     scene.add(horse);
     updateHorseGroundOffset();
-    rescaleGrassToHorse();
+    applyGrassSizeVariation();
 
     // ── Animations ─────────────────────────────────────────────────────────
     if (gltf.animations && gltf.animations.length > 0) {
@@ -509,7 +507,7 @@ gltfLoader.load(
     horse = body;
     scene.add(horse);
     updateHorseGroundOffset();
-    rescaleGrassToHorse();
+    applyGrassSizeVariation();
     assetLoaded();
   }
 );
