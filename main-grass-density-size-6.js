@@ -51,8 +51,9 @@ const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const SINGLE_GRASS_GEOMETRY_MAX_HEIGHT = 1.0;
 const POND_CENTER_X = 8;
 const POND_CENTER_Z = -18;
-const POND_RADIUS_X = 23;
-const POND_RADIUS_Z = 14;
+const POND_RADIUS_X = 4.6;
+const POND_RADIUS_Z = 2.8;
+const PATH_HALF_WIDTH = 1.15;
 const PERIMETER_TREE_COUNT = 52;
 const PERIMETER_RAIL_COUNT = 48;
 const GRASS_COLOR_PALETTE = [0x2f5f2e, 0x3f7d35, 0x5d8f3c, 0x78a94c, 0x8cab55];
@@ -149,6 +150,7 @@ let bunnyPauseUntil = 0;
 let bunnyGroundOffset = 0;
 let skyboxModel = null;
 let skyboxOffset = new THREE.Vector3();
+let walkingPathSamples = [];
 
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
@@ -246,19 +248,6 @@ function isInsidePond(x, z, padding = 0) {
   return getPondRatio(x, z, padding) <= 1;
 }
 
-function pushOutOfPond(point, padding = 2.5) {
-  const ratio = getPondRatio(point.x, point.z, padding);
-  if (ratio > 1) return point;
-
-  const dx = point.x - POND_CENTER_X;
-  const dz = point.z - POND_CENTER_Z;
-  const angle = Math.atan2(dz / POND_RADIUS_Z, dx / POND_RADIUS_X);
-  const edge = getPondEdgeScale(angle);
-  point.x = POND_CENTER_X + Math.cos(angle) * (POND_RADIUS_X * edge + padding);
-  point.z = POND_CENTER_Z + Math.sin(angle) * (POND_RADIUS_Z * edge + padding);
-  return point;
-}
-
 function getPondEdgeScale(angle) {
   return 1
     + Math.sin(angle * 3.0 + 0.7) * 0.13
@@ -273,6 +262,17 @@ function getPondBoundaryPoint(angle, padding = 0) {
     0,
     POND_CENTER_Z + Math.sin(angle) * (POND_RADIUS_Z * edge + padding)
   );
+}
+
+function distanceToWalkingPath(x, z) {
+  if (walkingPathSamples.length === 0) return Infinity;
+  let closestSq = Infinity;
+  for (const point of walkingPathSamples) {
+    const dx = x - point.x;
+    const dz = z - point.z;
+    closestSq = Math.min(closestSq, dx * dx + dz * dz);
+  }
+  return Math.sqrt(closestSq);
 }
 
 function seededRandom(seed) {
@@ -543,6 +543,89 @@ function buildPasture() {
   );
   scene.add(shore);
 
+  const pathCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-55, 0, 50),
+    new THREE.Vector3(-34, 0, 28),
+    new THREE.Vector3(-8, 0, 18),
+    new THREE.Vector3(18, 0, 24),
+    new THREE.Vector3(46, 0, 8),
+    new THREE.Vector3(38, 0, -20),
+    new THREE.Vector3(12, 0, -34),
+    new THREE.Vector3(-18, 0, -26),
+    new THREE.Vector3(-44, 0, -6),
+    new THREE.Vector3(-58, 0, -34)
+  ]);
+  const pathSamples = pathCurve.getPoints(130);
+  walkingPathSamples = pathSamples.map(point => new THREE.Vector3(point.x, getPastureHeight(point.x, point.z), point.z));
+
+  const pathPositions = [];
+  const pathUvs = [];
+  const pathIndices = [];
+  for (let i = 0; i < walkingPathSamples.length; i++) {
+    const point = walkingPathSamples[i];
+    const prev = walkingPathSamples[Math.max(0, i - 1)];
+    const next = walkingPathSamples[Math.min(walkingPathSamples.length - 1, i + 1)];
+    const tangent = new THREE.Vector3(next.x - prev.x, 0, next.z - prev.z).normalize();
+    const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
+    const widthNoise = 0.82 + seededRandom(i + 7300) * 0.28;
+    const halfWidth = PATH_HALF_WIDTH * widthNoise;
+    const left = new THREE.Vector3(point.x + normal.x * halfWidth, getPastureHeight(point.x, point.z) + 0.075, point.z + normal.z * halfWidth);
+    const right = new THREE.Vector3(point.x - normal.x * halfWidth, getPastureHeight(point.x, point.z) + 0.075, point.z - normal.z * halfWidth);
+    pathPositions.push(left.x, left.y, left.z, right.x, right.y, right.z);
+    pathUvs.push(0, i * 0.14, 1, i * 0.14);
+    if (i < walkingPathSamples.length - 1) {
+      const a = i * 2;
+      pathIndices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+
+  const pathCanvas = document.createElement('canvas');
+  pathCanvas.width = 128;
+  pathCanvas.height = 128;
+  const pathCtx = pathCanvas.getContext('2d');
+  pathCtx.fillStyle = '#7c6744';
+  pathCtx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 240; i++) {
+    const shade = 78 + Math.floor(seededRandom(i + 9000) * 70);
+    pathCtx.fillStyle = `rgba(${shade + 18}, ${shade + 6}, ${shade - 18}, ${0.18 + seededRandom(i + 9100) * 0.28})`;
+    pathCtx.beginPath();
+    pathCtx.arc(seededRandom(i + 9200) * 128, seededRandom(i + 9300) * 128, 0.8 + seededRandom(i + 9400) * 2.6, 0, Math.PI * 2);
+    pathCtx.fill();
+  }
+  const pathTexture = new THREE.CanvasTexture(pathCanvas);
+  pathTexture.wrapS = THREE.RepeatWrapping;
+  pathTexture.wrapT = THREE.RepeatWrapping;
+  pathTexture.repeat.set(1.0, 9.0);
+  pathTexture.colorSpace = THREE.SRGBColorSpace;
+
+  const pathGeometry = new THREE.BufferGeometry();
+  pathGeometry.setAttribute('position', new THREE.Float32BufferAttribute(pathPositions, 3));
+  pathGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(pathUvs, 2));
+  pathGeometry.setIndex(pathIndices);
+  pathGeometry.computeVertexNormals();
+  const path = new THREE.Mesh(
+    pathGeometry,
+    new THREE.MeshLambertMaterial({ color: 0xd0b783, map: pathTexture, side: THREE.DoubleSide })
+  );
+  path.receiveShadow = false;
+  scene.add(path);
+
+  const pathRockMaterial = new THREE.MeshLambertMaterial({ color: 0x8b856f });
+  for (let i = 0; i < 34; i++) {
+    const sample = walkingPathSamples[Math.floor(seededRandom(i + 9500) * walkingPathSamples.length)];
+    const angle = seededRandom(i + 9600) * Math.PI * 2;
+    const side = seededRandom(i + 9700) > 0.5 ? 1 : -1;
+    const offset = PATH_HALF_WIDTH * (1.25 + seededRandom(i + 9800) * 0.9) * side;
+    const rockX = sample.x + Math.cos(angle) * offset;
+    const rockZ = sample.z + Math.sin(angle) * offset;
+    if (!isInsidePasture(rockX, rockZ, 2) || isInsidePond(rockX, rockZ, 1.2)) continue;
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22 + seededRandom(i + 9900) * 0.36, 0), pathRockMaterial);
+    rock.position.set(rockX, getPastureHeight(rockX, rockZ) + 0.1, rockZ);
+    rock.scale.set(1.4, 0.45, 0.85);
+    rock.rotation.set(0.2, angle, 0.1);
+    scene.add(rock);
+  }
+
   const shoreRockMaterial = new THREE.MeshLambertMaterial({ color: 0x7a7b69 });
   const cattailStemMaterial = new THREE.MeshLambertMaterial({ color: 0x526f2f });
   const cattailHeadMaterial = new THREE.MeshLambertMaterial({ color: 0x6d4321 });
@@ -596,11 +679,9 @@ function buildPasture() {
     attempts++;
     const x = (seededRandom(attempts * 3 + 1) - 0.5) * (PASTURE_RADIUS_X * 2.05);
     const z = (seededRandom(attempts * 3 + 2) - 0.5) * (PASTURE_RADIUS_Z * 2.05);
-    if (!isInsidePasture(x, z, PASTURE_MARGIN + 2)) continue;
+    if (!isInsidePasture(x, z, 0)) continue;
     if (isInsidePond(x, z, 2.0)) continue;
-    const edgeRatio = getPastureBoundaryRatio(x, z, PASTURE_MARGIN + 2);
-    const edgeFade = Math.max(0, Math.min(1, (1 - edgeRatio) / 0.18));
-    if (seededRandom(attempts * 3 + 7) > edgeFade) continue;
+    if (distanceToWalkingPath(x, z) < PATH_HALF_WIDTH + 0.35) continue;
 
     const y = getPastureHeight(x, z) + 0.02;
     const yaw = seededRandom(attempts * 3 + 3) * Math.PI * 2;
@@ -608,8 +689,8 @@ function buildPasture() {
     const spreadSeed = seededRandom(attempts * 3 + 5);
     const colorSeed = seededRandom(attempts * 3 + 6);
     const targetHeight = GRASS_MIN_HEIGHT + heightSeed * (GRASS_MAX_HEIGHT - GRASS_MIN_HEIGHT);
-    const height = (targetHeight / GRASS_GEOMETRY_MAX_HEIGHT) * (0.45 + edgeFade * 0.55);
-    const spread = height * (0.62 + spreadSeed * 0.52) * (0.55 + edgeFade * 0.45);
+    const height = targetHeight / GRASS_GEOMETRY_MAX_HEIGHT;
+    const spread = height * (0.62 + spreadSeed * 0.52);
     quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
     scale.set(spread, height, spread);
     matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
@@ -641,19 +722,17 @@ function buildPasture() {
     singleAttempts++;
     const x = (seededRandom(singleAttempts * 5 + 11) - 0.5) * (PASTURE_RADIUS_X * 2.0);
     const z = (seededRandom(singleAttempts * 5 + 12) - 0.5) * (PASTURE_RADIUS_Z * 2.0);
-    if (!isInsidePasture(x, z, PASTURE_MARGIN + 1)) continue;
+    if (!isInsidePasture(x, z, 0)) continue;
     if (isInsidePond(x, z, 1.5)) continue;
-    const edgeRatio = getPastureBoundaryRatio(x, z, PASTURE_MARGIN + 1);
-    const edgeFade = Math.max(0, Math.min(1, (1 - edgeRatio) / 0.2));
-    if (seededRandom(singleAttempts * 5 + 17) > edgeFade) continue;
+    if (distanceToWalkingPath(x, z) < PATH_HALF_WIDTH + 0.25) continue;
 
     const y = getPastureHeight(x, z) + 0.028;
     const yaw = seededRandom(singleAttempts * 5 + 13) * Math.PI * 2;
     const heightSeed = seededRandom(singleAttempts * 5 + 14);
     const widthSeed = seededRandom(singleAttempts * 5 + 15);
     const colorSeed = seededRandom(singleAttempts * 5 + 16);
-    const height = ((0.22 + heightSeed * 0.36) / SINGLE_GRASS_GEOMETRY_MAX_HEIGHT) * (0.42 + edgeFade * 0.58);
-    const width = (0.65 + widthSeed * 0.7) * (0.55 + edgeFade * 0.45);
+    const height = (0.22 + heightSeed * 0.36) / SINGLE_GRASS_GEOMETRY_MAX_HEIGHT;
+    const width = 0.65 + widthSeed * 0.7;
 
     quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
     scale.set(width, height, width);
@@ -1117,7 +1196,6 @@ function pickBunnyTarget(elapsed) {
     const x = (seededRandom(seed + 1) - 0.5) * PASTURE_RADIUS_X * 1.5;
     const z = (seededRandom(seed + 2) - 0.5) * PASTURE_RADIUS_Z * 1.35;
     if (!isInsidePasture(x, z, 26)) continue;
-    if (isInsidePond(x, z, 7)) continue;
     bunnyTarget.set(x, getPastureHeight(x, z), z);
     return;
   }
@@ -1146,7 +1224,6 @@ function updateBunny(delta, elapsed) {
     bunny.position.x += Math.sin(yaw) * delta * speedScale;
     bunny.position.z += Math.cos(yaw) * delta * speedScale;
     clampToPasture(bunny.position, 24);
-    pushOutOfPond(bunny.position, 3.2);
     bunny.position.y = getPastureHeight(bunny.position.x, bunny.position.z) + bunnyGroundOffset;
   }
 
@@ -1208,7 +1285,6 @@ function animate() {
     horse.position.x -= Math.sin(horseYaw) * speed * delta;
     horse.position.z -= Math.cos(horseYaw) * speed * delta;
     clampToPasture(horse.position);
-    pushOutOfPond(horse.position, 4.0);
     setHorseOnGround();
     horse.rotation.y = horseYaw;
 
