@@ -49,10 +49,13 @@ const GRASS_MIN_HEIGHT = 0.34;
 const GRASS_MAX_HEIGHT = 0.52;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const SINGLE_GRASS_GEOMETRY_MAX_HEIGHT = 1.0;
-const STREAM_WIDTH = 5.2;
+const POND_CENTER_X = 8;
+const POND_CENTER_Z = -18;
+const POND_RADIUS_X = 23;
+const POND_RADIUS_Z = 14;
 const PERIMETER_TREE_COUNT = 32;
 const PERIMETER_RAIL_COUNT = 48;
-const GRASS_COLOR_PALETTE = [0x4f9900, 0x82c23a, 0xa5c940, 0xd7e356];
+const GRASS_COLOR_PALETTE = [0x2f5f2e, 0x3f7d35, 0x5d8f3c, 0x78a94c, 0x8cab55];
 const APPLE_COLLECT_RADIUS = 6.5;
 const ORCHARD_ROW_COUNT = 4;
 const ORCHARD_TREES_PER_ROW = 5;
@@ -229,12 +232,28 @@ function getPastureHeight(x, z) {
   return MODEL_Y + rolling + meadow;
 }
 
-function getStreamCenterX(z) {
-  return Math.sin(z * 0.038) * 18 + Math.sin(z * 0.085 + 1.7) * 7;
+function getPondRatio(x, z, padding = 0) {
+  const radiusX = POND_RADIUS_X + padding;
+  const radiusZ = POND_RADIUS_Z + padding;
+  const dx = x - POND_CENTER_X;
+  const dz = z - POND_CENTER_Z;
+  return Math.sqrt((dx * dx) / (radiusX * radiusX) + (dz * dz) / (radiusZ * radiusZ));
 }
 
-function distanceToStream(x, z) {
-  return Math.abs(x - getStreamCenterX(z));
+function isInsidePond(x, z, padding = 0) {
+  return getPondRatio(x, z, padding) <= 1;
+}
+
+function pushOutOfPond(point, padding = 2.5) {
+  const ratio = getPondRatio(point.x, point.z, padding);
+  if (ratio > 1) return point;
+
+  const dx = point.x - POND_CENTER_X;
+  const dz = point.z - POND_CENTER_Z;
+  const angle = Math.atan2(dz / POND_RADIUS_Z, dx / POND_RADIUS_X);
+  point.x = POND_CENTER_X + Math.cos(angle) * (POND_RADIUS_X + padding);
+  point.z = POND_CENTER_Z + Math.sin(angle) * (POND_RADIUS_Z + padding);
+  return point;
 }
 
 function seededRandom(seed) {
@@ -407,47 +426,56 @@ function buildPasture() {
   pastureGround.geometry.computeVertexNormals();
 
   const grassMaterial = pastureGround.material;
-  grassMaterial.color.set(0x5e8f3e);
+  grassMaterial.color.set(0x477438);
 
-  const streamPoints = [];
-  const streamSteps = 96;
-  for (let i = 0; i <= streamSteps; i++) {
-    const z = -PASTURE_RADIUS_Z + (i / streamSteps) * (PASTURE_RADIUS_Z * 2);
-    const x = getStreamCenterX(z);
-    const dx = getStreamCenterX(z + 0.5) - getStreamCenterX(z - 0.5);
-    const tangent = new THREE.Vector3(dx, 0, 1).normalize();
-    const normal = new THREE.Vector3(-tangent.z, 0, tangent.x);
-    const halfWidth = STREAM_WIDTH * (0.82 + seededRandom(i + 20) * 0.28);
-    const y = getPastureHeight(x, z) + 0.045;
-
-    streamPoints.push(
-      x + normal.x * halfWidth, y, z + normal.z * halfWidth,
-      x - normal.x * halfWidth, y, z - normal.z * halfWidth
-    );
+  const pondCanvas = document.createElement('canvas');
+  pondCanvas.width = 128;
+  pondCanvas.height = 128;
+  const pondCtx = pondCanvas.getContext('2d');
+  pondCtx.fillStyle = '#4f9da4';
+  pondCtx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 28; i++) {
+    pondCtx.strokeStyle = i % 2 === 0 ? 'rgba(180, 230, 220, 0.28)' : 'rgba(42, 105, 118, 0.22)';
+    pondCtx.lineWidth = 1 + (i % 3);
+    pondCtx.beginPath();
+    const y = 8 + i * 4.2;
+    pondCtx.moveTo(0, y);
+    for (let x = 0; x <= 128; x += 12) {
+      pondCtx.lineTo(x, y + Math.sin(x * 0.12 + i) * 3);
+    }
+    pondCtx.stroke();
   }
+  const pondTexture = new THREE.CanvasTexture(pondCanvas);
+  pondTexture.wrapS = THREE.RepeatWrapping;
+  pondTexture.wrapT = THREE.RepeatWrapping;
+  pondTexture.repeat.set(2.2, 1.4);
+  pondTexture.colorSpace = THREE.SRGBColorSpace;
 
-  const streamIndices = [];
-  for (let i = 0; i < streamSteps; i++) {
-    const a = i * 2;
-    streamIndices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-  }
-
-  const streamGeometry = new THREE.BufferGeometry();
-  streamGeometry.setAttribute('position', new THREE.Float32BufferAttribute(streamPoints, 3));
-  streamGeometry.setIndex(streamIndices);
-  streamGeometry.computeVertexNormals();
-
-  const stream = new THREE.Mesh(
-    streamGeometry,
+  const pondY = getPastureHeight(POND_CENTER_X, POND_CENTER_Z) + 0.055;
+  const pond = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 96),
     new THREE.MeshLambertMaterial({
-      color: 0x4aa8c7,
+      color: 0x79b9b4,
+      map: pondTexture,
       transparent: true,
-      opacity: 0.78,
+      opacity: 0.9,
       side: THREE.DoubleSide
     })
   );
-  stream.receiveShadow = true;
-  scene.add(stream);
+  pond.rotation.x = -Math.PI / 2;
+  pond.position.set(POND_CENTER_X, pondY, POND_CENTER_Z);
+  pond.scale.set(POND_RADIUS_X, POND_RADIUS_Z, 1);
+  pond.receiveShadow = false;
+  scene.add(pond);
+
+  const shore = new THREE.Mesh(
+    new THREE.RingGeometry(1.0, 1.12, 96),
+    new THREE.MeshLambertMaterial({ color: 0x6f7e46, side: THREE.DoubleSide })
+  );
+  shore.rotation.x = -Math.PI / 2;
+  shore.position.set(POND_CENTER_X, pondY - 0.012, POND_CENTER_Z);
+  shore.scale.set(POND_RADIUS_X, POND_RADIUS_Z, 1);
+  scene.add(shore);
 
   const grassClusterGeometry = createGrassClusterGeometry();
   const grassClusterMaterial = new THREE.MeshBasicMaterial({
@@ -470,7 +498,7 @@ function buildPasture() {
     const x = (seededRandom(attempts * 3 + 1) - 0.5) * (PASTURE_RADIUS_X * 2.05);
     const z = (seededRandom(attempts * 3 + 2) - 0.5) * (PASTURE_RADIUS_Z * 2.05);
     if (!isInsidePasture(x, z, PASTURE_MARGIN + 2)) continue;
-    if (distanceToStream(x, z) < STREAM_WIDTH + 1.2) continue;
+    if (isInsidePond(x, z, 2.0)) continue;
 
     const y = getPastureHeight(x, z) + 0.02;
     const yaw = seededRandom(attempts * 3 + 3) * Math.PI * 2;
@@ -512,7 +540,7 @@ function buildPasture() {
     const x = (seededRandom(singleAttempts * 5 + 11) - 0.5) * (PASTURE_RADIUS_X * 2.0);
     const z = (seededRandom(singleAttempts * 5 + 12) - 0.5) * (PASTURE_RADIUS_Z * 2.0);
     if (!isInsidePasture(x, z, PASTURE_MARGIN + 1)) continue;
-    if (distanceToStream(x, z) < STREAM_WIDTH + 0.9) continue;
+    if (isInsidePond(x, z, 1.5)) continue;
 
     const y = getPastureHeight(x, z) + 0.028;
     const yaw = seededRandom(singleAttempts * 5 + 13) * Math.PI * 2;
@@ -631,13 +659,41 @@ function buildPasture() {
     scene.add(rail);
   }
 
-  for (let i = 0; i < PERIMETER_TREE_COUNT; i++) {
-    const angle = (i / PERIMETER_TREE_COUNT) * Math.PI * 2 + seededRandom(i + 80) * 0.032;
-    const inset = 7 + seededRandom(i + 90) * 8;
-    const point = getPastureBoundaryPoint(angle, inset);
-    const height = 8.8 + seededRandom(i + 100) * 3.2;
-    addModelAppleTree(point.x, point.z, i + 1000, height);
+  for (let ring = 0; ring < 3; ring++) {
+    const count = PERIMETER_TREE_COUNT - ring * 4;
+    for (let i = 0; i < count; i++) {
+      const seed = 1000 + ring * 300 + i;
+      const angle = (i / count) * Math.PI * 2 + ring * 0.075 + seededRandom(seed + 80) * 0.038;
+      const inset = 5 + ring * 8 + seededRandom(seed + 90) * 4;
+      const point = getPastureBoundaryPoint(angle, inset);
+      if (isInsidePond(point.x, point.z, 10)) continue;
+      const height = 8.6 + seededRandom(seed + 100) * 3.1;
+      addModelAppleTree(point.x, point.z, seed, height);
+    }
   }
+
+  const mountainGroup = new THREE.Group();
+  const mountainMaterials = [
+    new THREE.MeshLambertMaterial({ color: 0x6f92a4, fog: true }),
+    new THREE.MeshLambertMaterial({ color: 0x87aebd, fog: true }),
+    new THREE.MeshLambertMaterial({ color: 0x5f7f91, fog: true })
+  ];
+  for (let i = 0; i < 13; i++) {
+    const seed = 4200 + i * 17;
+    const width = 26 + seededRandom(seed) * 24;
+    const height = 17 + seededRandom(seed + 1) * 22;
+    const x = -150 + i * 25 + (seededRandom(seed + 2) - 0.5) * 12;
+    const z = -122 - seededRandom(seed + 3) * 18;
+    const geometry = new THREE.ConeGeometry(width * 0.5, height, 4, 1);
+    const mountain = new THREE.Mesh(geometry, mountainMaterials[i % mountainMaterials.length]);
+    mountain.position.set(x, getPastureHeight(0, -PASTURE_RADIUS_Z) + height * 0.45 - 6, z);
+    mountain.rotation.y = Math.PI * 0.25;
+    mountain.scale.z = 0.72;
+    mountain.receiveShadow = false;
+    mountain.castShadow = false;
+    mountainGroup.add(mountain);
+  }
+  scene.add(mountainGroup);
 
   for (let row = 0; row < ORCHARD_ROW_COUNT; row++) {
     const z = (row - (ORCHARD_ROW_COUNT - 1) * 0.5) * 19;
@@ -650,7 +706,7 @@ function buildPasture() {
       const treeX = x + jitterX;
       const treeZ = z + jitterZ;
       if (!isInsidePasture(treeX, treeZ, 24)) continue;
-      if (distanceToStream(treeX, treeZ) < STREAM_WIDTH + 8) continue;
+      if (isInsidePond(treeX, treeZ, 9)) continue;
       addModelAppleTree(treeX, treeZ, seed, 9.8 + seededRandom(seed + 2) * 2.4);
     }
   }
@@ -953,7 +1009,7 @@ function pickBunnyTarget(elapsed) {
     const x = (seededRandom(seed + 1) - 0.5) * PASTURE_RADIUS_X * 1.5;
     const z = (seededRandom(seed + 2) - 0.5) * PASTURE_RADIUS_Z * 1.35;
     if (!isInsidePasture(x, z, 26)) continue;
-    if (distanceToStream(x, z) < STREAM_WIDTH + 5) continue;
+    if (isInsidePond(x, z, 7)) continue;
     bunnyTarget.set(x, getPastureHeight(x, z), z);
     return;
   }
@@ -982,6 +1038,7 @@ function updateBunny(delta, elapsed) {
     bunny.position.x += Math.sin(yaw) * delta * speedScale;
     bunny.position.z += Math.cos(yaw) * delta * speedScale;
     clampToPasture(bunny.position, 24);
+    pushOutOfPond(bunny.position, 3.2);
     bunny.position.y = getPastureHeight(bunny.position.x, bunny.position.z) + bunnyGroundOffset;
   }
 
@@ -1043,6 +1100,7 @@ function animate() {
     horse.position.x -= Math.sin(horseYaw) * speed * delta;
     horse.position.z -= Math.cos(horseYaw) * speed * delta;
     clampToPasture(horse.position);
+    pushOutOfPond(horse.position, 4.0);
     setHorseOnGround();
     horse.rotation.y = horseYaw;
 
