@@ -16,9 +16,10 @@ const MODEL_Z        = 0;      // world Z
 const MODEL_ROT_X    = 0;              // rotation X (radians)
 const MODEL_ROT_Y    = Math.PI;        // rotation Y — faces away from default camera
 const MODEL_ROT_Z    = 0;             // rotation Z
+const HORSE_VISUAL_YAW_OFFSET = Math.PI / 2;
 
 // Scale
-const HORSE_SCALE    = 3.0;    // make the horse clearly larger than the pasture grass
+const HORSE_SCALE    = 2.1;    // 30% smaller than the previous 3.0 scale
 
 // Movement
 const MOVE_SPEED     = 6.5;    // m/s at full walk
@@ -39,7 +40,7 @@ const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 const PASTURE_SIZE = 280;
 const PASTURE_SEGMENTS = 120;
 const GRASS_CLUSTER_COUNT = 42000;
-const GRASS_HEIGHT_TO_HORSE = 0.02;
+const GRASS_HEIGHT_TO_HORSE = 0.065;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const STREAM_WIDTH = 5.2;
 
@@ -204,6 +205,11 @@ function setHorseOnGround() {
   horse.position.y = getPastureHeight(horse.position.x, horse.position.z) + horseGroundOffset;
 }
 
+function setHorseVisualRotation() {
+  if (!horse) return;
+  horse.rotation.set(MODEL_ROT_X, horseYaw + HORSE_VISUAL_YAW_OFFSET, MODEL_ROT_Z);
+}
+
 function updateHorseGroundOffset() {
   if (!horse) return;
   horse.updateMatrixWorld(true);
@@ -323,8 +329,8 @@ function buildPasture() {
     const yaw = seededRandom(attempts * 3 + 3) * Math.PI * 2;
     const heightSeed = seededRandom(attempts * 3 + 4);
     const spreadSeed = seededRandom(attempts * 3 + 5);
-    const height = 0.004 + heightSeed * 0.004;
-    const spread = 0.003 + spreadSeed * 0.003;
+    const height = 0.012 + heightSeed * 0.014;
+    const spread = 0.008 + spreadSeed * 0.010;
     quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
     scale.set(spread, height, spread);
     matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
@@ -446,7 +452,7 @@ gltfLoader.load(
     horse = gltf.scene;
     horse.scale.setScalar(HORSE_SCALE);
     horse.position.set(MODEL_X, MODEL_Y, MODEL_Z);
-    horse.rotation.set(MODEL_ROT_X, MODEL_ROT_Y, MODEL_ROT_Z);
+    setHorseVisualRotation();
     horse.traverse(child => {
       if (child.isMesh) {
         child.castShadow   = true;
@@ -504,7 +510,7 @@ gltfLoader.load(
       new THREE.MeshLambertMaterial({ color: 0x7b3f10 })
     );
     body.position.set(MODEL_X, MODEL_Y + 1.15, MODEL_Z);
-    body.rotation.y = MODEL_ROT_Y;
+    body.rotation.y = MODEL_ROT_Y + HORSE_VISUAL_YAW_OFFSET;
     body.castShadow = true;
     horse = body;
     scene.add(horse);
@@ -615,7 +621,7 @@ function animate() {
     horse.position.x = Math.max(-PASTURE_LIMIT, Math.min(PASTURE_LIMIT, horse.position.x));
     horse.position.z = Math.max(-PASTURE_LIMIT, Math.min(PASTURE_LIMIT, horse.position.z));
     setHorseOnGround();
-    horse.rotation.y  = horseYaw;
+    setHorseVisualRotation();
 
     // ── Animations ──────────────────────────────────────────────────────────
     if (mixer) {
