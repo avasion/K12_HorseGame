@@ -24,7 +24,9 @@ const HORSE_SCALE    = 1.47;   // 30% smaller than the previous 2.1 scale
 const MOVE_SPEED     = 6.5;    // m/s at full walk
 const TURN_SPEED     = 1.8;    // rad/s lateral turning (A/D)
 const SPEED_LERP     = 0.10;   // velocity smoothing (0 = sluggish, 1 = instant)
-const PASTURE_LIMIT  = 132;    // keep the horse inside the fence
+const PASTURE_RADIUS_X = 124;   // irregular oval rideable boundary, east/west
+const PASTURE_RADIUS_Z = 104;   // irregular oval rideable boundary, north/south
+const PASTURE_MARGIN   = 8;     // keeps the horse off the tree line
 
 // Camera orbit
 const CAM_DISTANCE      = 9.5;   // follow distance behind horse
@@ -38,11 +40,13 @@ const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 // Pasture
 const PASTURE_SIZE = 280;
 const PASTURE_SEGMENTS = 120;
-const GRASS_CLUSTER_COUNT = 84000;
-const GRASS_MIN_HEIGHT = 0.1;
-const GRASS_MAX_HEIGHT = 0.4;
+const GRASS_CLUSTER_COUNT = 150000;
+const GRASS_MIN_HEIGHT = 0.34;
+const GRASS_MAX_HEIGHT = 0.82;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const STREAM_WIDTH = 5.2;
+const PERIMETER_TREE_COUNT = 118;
+const PERIMETER_RAIL_COUNT = 72;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -167,10 +171,49 @@ function seededRandom(seed) {
   return x - Math.floor(x);
 }
 
+function getBoundaryScale(angle) {
+  return 1
+    + Math.sin(angle * 3.0 + 0.45) * 0.055
+    + Math.sin(angle * 5.0 - 1.1) * 0.035
+    + Math.cos(angle * 7.0 + 0.8) * 0.025;
+}
+
+function getPastureBoundaryPoint(angle, inset = 0) {
+  const scale = getBoundaryScale(angle);
+  const radiusX = Math.max(1, PASTURE_RADIUS_X * scale - inset);
+  const radiusZ = Math.max(1, PASTURE_RADIUS_Z * scale - inset);
+  return new THREE.Vector3(
+    Math.cos(angle) * radiusX,
+    0,
+    Math.sin(angle) * radiusZ
+  );
+}
+
+function getPastureBoundaryRatio(x, z, inset = 0) {
+  const angle = Math.atan2(z / PASTURE_RADIUS_Z, x / PASTURE_RADIUS_X);
+  const scale = getBoundaryScale(angle);
+  const radiusX = Math.max(1, PASTURE_RADIUS_X * scale - inset);
+  const radiusZ = Math.max(1, PASTURE_RADIUS_Z * scale - inset);
+  return Math.sqrt((x * x) / (radiusX * radiusX) + (z * z) / (radiusZ * radiusZ));
+}
+
+function isInsidePasture(x, z, inset = 0) {
+  return getPastureBoundaryRatio(x, z, inset) <= 1;
+}
+
+function clampToPasture(point, inset = PASTURE_MARGIN) {
+  const ratio = getPastureBoundaryRatio(point.x, point.z, inset);
+  if (ratio <= 1) return point;
+
+  point.x /= ratio;
+  point.z /= ratio;
+  return point;
+}
+
 function createGrassClusterGeometry() {
   const positions = [];
   const indices = [];
-  const bladeCount = 7;
+  const bladeCount = 11;
 
   for (let i = 0; i < bladeCount; i++) {
     const angle = (i / bladeCount) * Math.PI * 2;
@@ -233,7 +276,7 @@ function applyGrassSizeVariation() {
 
     const targetHeight = GRASS_MIN_HEIGHT + blade.heightSeed * (GRASS_MAX_HEIGHT - GRASS_MIN_HEIGHT);
     const heightScale = targetHeight / GRASS_GEOMETRY_MAX_HEIGHT;
-    const spreadScale = heightScale * (0.45 + blade.spreadSeed * 0.35);
+    const spreadScale = heightScale * (0.62 + blade.spreadSeed * 0.52);
     scale.set(spreadScale, heightScale, spreadScale);
     matrix.compose(new THREE.Vector3(blade.x, blade.y, blade.z), quaternion, scale);
     grassClusters.setMatrixAt(i, matrix);
@@ -246,10 +289,15 @@ function buildPasture() {
   setProgress(20, 'Growing pasture...');
 
   const position = pastureGround.geometry.attributes.position;
+  const boundaryProjector = new THREE.Vector3();
   for (let i = 0; i < position.count; i++) {
     const x = position.getX(i);
-    const y = position.getY(i);
-    position.setZ(i, getPastureHeight(x, -y));
+    const z = -position.getY(i);
+    boundaryProjector.set(x, 0, z);
+    clampToPasture(boundaryProjector, 0);
+    position.setX(i, boundaryProjector.x);
+    position.setY(i, -boundaryProjector.z);
+    position.setZ(i, getPastureHeight(boundaryProjector.x, boundaryProjector.z));
   }
   position.needsUpdate = true;
   pastureGround.geometry.computeVertexNormals();
@@ -260,7 +308,7 @@ function buildPasture() {
   const streamPoints = [];
   const streamSteps = 96;
   for (let i = 0; i <= streamSteps; i++) {
-    const z = -PASTURE_LIMIT + (i / streamSteps) * (PASTURE_LIMIT * 2);
+    const z = -PASTURE_RADIUS_Z + (i / streamSteps) * (PASTURE_RADIUS_Z * 2);
     const x = getStreamCenterX(z);
     const dx = getStreamCenterX(z + 0.5) - getStreamCenterX(z - 0.5);
     const tangent = new THREE.Vector3(dx, 0, 1).normalize();
@@ -312,8 +360,9 @@ function buildPasture() {
 
   while (placedClusters < GRASS_CLUSTER_COUNT && attempts < GRASS_CLUSTER_COUNT * 5) {
     attempts++;
-    const x = (seededRandom(attempts * 3 + 1) - 0.5) * (PASTURE_LIMIT * 1.85);
-    const z = (seededRandom(attempts * 3 + 2) - 0.5) * (PASTURE_LIMIT * 1.85);
+    const x = (seededRandom(attempts * 3 + 1) - 0.5) * (PASTURE_RADIUS_X * 2.05);
+    const z = (seededRandom(attempts * 3 + 2) - 0.5) * (PASTURE_RADIUS_Z * 2.05);
+    if (!isInsidePasture(x, z, PASTURE_MARGIN + 2)) continue;
     if (distanceToStream(x, z) < STREAM_WIDTH + 1.2) continue;
 
     const y = getPastureHeight(x, z) + 0.02;
@@ -322,7 +371,7 @@ function buildPasture() {
     const spreadSeed = seededRandom(attempts * 3 + 5);
     const targetHeight = GRASS_MIN_HEIGHT + heightSeed * (GRASS_MAX_HEIGHT - GRASS_MIN_HEIGHT);
     const height = targetHeight / GRASS_GEOMETRY_MAX_HEIGHT;
-    const spread = height * (0.45 + spreadSeed * 0.35);
+    const spread = height * (0.62 + spreadSeed * 0.52);
     quaternion.setFromEuler(new THREE.Euler(0, yaw, 0));
     scale.set(spread, height, spread);
     matrix.compose(new THREE.Vector3(x, y, z), quaternion, scale);
@@ -336,69 +385,72 @@ function buildPasture() {
   grassClusters.castShadow = true;
   scene.add(grassClusters);
 
-  const fenceMaterial = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });
-  const postGeometry = new THREE.BoxGeometry(0.32, 2.1, 0.32);
-  const railGeometry = new THREE.BoxGeometry(PASTURE_SIZE - 12, 0.22, 0.22);
-  const sideRailGeometry = new THREE.BoxGeometry(0.22, 0.22, PASTURE_SIZE - 12);
-  const fenceY = 1.05;
-  const edge = PASTURE_LIMIT + 4;
-
-  for (let x = -edge; x <= edge; x += 14) {
-    for (const z of [-edge, edge]) {
-      const post = new THREE.Mesh(postGeometry, fenceMaterial);
-      post.position.set(x, getPastureHeight(x, z) + fenceY, z);
-      post.castShadow = true;
-      scene.add(post);
-    }
-  }
-  for (let z = -edge; z <= edge; z += 14) {
-    for (const x of [-edge, edge]) {
-      const post = new THREE.Mesh(postGeometry, fenceMaterial);
-      post.position.set(x, getPastureHeight(x, z) + fenceY, z);
-      post.castShadow = true;
-      scene.add(post);
-    }
-  }
-
-  for (const z of [-edge, edge]) {
-    const rail = new THREE.Mesh(railGeometry, fenceMaterial);
-    rail.position.set(0, getPastureHeight(0, z) + 1.35, z);
-    rail.castShadow = true;
-    scene.add(rail);
-  }
-  for (const x of [-edge, edge]) {
-    const rail = new THREE.Mesh(sideRailGeometry, fenceMaterial);
-    rail.position.set(x, getPastureHeight(x, 0) + 1.35, 0);
-    rail.castShadow = true;
-    scene.add(rail);
-  }
-
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x6a3f1f });
   const leafMaterial = new THREE.MeshLambertMaterial({ color: 0x2f6b35 });
+  const leafDarkMaterial = new THREE.MeshLambertMaterial({ color: 0x1f4f2e });
+  const leafLightMaterial = new THREE.MeshLambertMaterial({ color: 0x4d8a43 });
   const blossomMaterial = new THREE.MeshLambertMaterial({ color: 0xffa6c8 });
   const blossomLightMaterial = new THREE.MeshLambertMaterial({ color: 0xffc7da });
 
-  function addTree(x, z, blossom = false) {
+  function addTree(x, z, blossom = false, size = 1) {
     const y = getPastureHeight(x, z);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.6, 5, 8), trunkMaterial);
-    trunk.position.set(x, y + 2.5, z);
+    const trunkHeight = 4.3 * size;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * size, 0.5 * size, trunkHeight, 8), trunkMaterial);
+    trunk.position.set(x, y + trunkHeight * 0.5, z);
     trunk.castShadow = true;
     scene.add(trunk);
 
     const canopyMaterial = blossom ? blossomMaterial : leafMaterial;
     const canopyOffsets = blossom
       ? [[0, 0, 0], [-2.2, -0.3, 0.6], [2.0, -0.2, -0.5], [0.4, 0.9, 1.8], [-0.5, 0.7, -1.7]]
-      : [[0, 0, 0], [-1.4, -0.4, 0.8], [1.5, -0.2, -0.7]];
+      : [[0, 0, 0], [-1.4, -0.35, 0.8], [1.5, -0.2, -0.7], [0.2, 0.55, 1.3]];
 
     for (let i = 0; i < canopyOffsets.length; i++) {
       const [ox, oy, oz] = canopyOffsets[i];
-      const material = blossom && i % 2 === 1 ? blossomLightMaterial : canopyMaterial;
-      const leaves = new THREE.Mesh(new THREE.SphereGeometry(blossom ? 2.8 : 3.4, 12, 8), material);
-      leaves.position.set(x + ox, y + 6.0 + oy, z + oz);
-      leaves.scale.set(blossom ? 1.2 : 1.15, blossom ? 0.82 : 0.9, blossom ? 1.2 : 1.15);
+      const material = blossom
+        ? (i % 2 === 1 ? blossomLightMaterial : canopyMaterial)
+        : (i % 3 === 0 ? leafDarkMaterial : (i % 3 === 1 ? leafMaterial : leafLightMaterial));
+      const leaves = new THREE.Mesh(new THREE.SphereGeometry((blossom ? 2.8 : 3.15) * size, 12, 8), material);
+      leaves.position.set(x + ox * size, y + trunkHeight + 1.0 * size + oy * size, z + oz * size);
+      leaves.scale.set(blossom ? 1.18 : 1.12, blossom ? 0.82 : 0.9, blossom ? 1.18 : 1.12);
       leaves.castShadow = true;
       scene.add(leaves);
     }
+  }
+
+  const fenceMaterial = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });
+  const postGeometry = new THREE.CylinderGeometry(0.18, 0.24, 1.7, 7);
+  const railGeometry = new THREE.BoxGeometry(1, 0.16, 0.18);
+
+  for (let i = 0; i < PERIMETER_RAIL_COUNT; i++) {
+    const angleA = (i / PERIMETER_RAIL_COUNT) * Math.PI * 2;
+    const angleB = ((i + 1) / PERIMETER_RAIL_COUNT) * Math.PI * 2;
+    const a = getPastureBoundaryPoint(angleA, 1.6);
+    const b = getPastureBoundaryPoint(angleB, 1.6);
+    const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+    const span = a.distanceTo(b) * 0.92;
+    const heading = Math.atan2(b.z - a.z, b.x - a.x);
+    const groundY = getPastureHeight(mid.x, mid.z);
+
+    const post = new THREE.Mesh(postGeometry, fenceMaterial);
+    post.position.set(a.x, getPastureHeight(a.x, a.z) + 0.85, a.z);
+    post.castShadow = true;
+    scene.add(post);
+
+    const rail = new THREE.Mesh(railGeometry, fenceMaterial);
+    rail.position.set(mid.x, groundY + 1.18, mid.z);
+    rail.scale.set(span, 1, 1);
+    rail.rotation.y = -heading;
+    rail.castShadow = true;
+    scene.add(rail);
+  }
+
+  for (let i = 0; i < PERIMETER_TREE_COUNT; i++) {
+    const angle = (i / PERIMETER_TREE_COUNT) * Math.PI * 2 + seededRandom(i + 80) * 0.032;
+    const inset = -5 - seededRandom(i + 90) * 9;
+    const point = getPastureBoundaryPoint(angle, inset);
+    const size = 0.78 + seededRandom(i + 100) * 0.62;
+    addTree(point.x, point.z, false, size);
   }
 
   const treeSpots = [
@@ -409,11 +461,11 @@ function buildPasture() {
   ];
 
   for (const [x, z] of treeSpots) {
-    addTree(x, z, false);
+    if (isInsidePasture(x, z, 18)) addTree(x, z, false, 1.05);
   }
 
   for (const [x, z] of cherrySpots) {
-    addTree(x, z, true);
+    if (isInsidePasture(x, z, 18)) addTree(x, z, true, 0.95);
   }
 
   const rockMaterial = new THREE.MeshLambertMaterial({ color: 0x7d8077 });
@@ -610,8 +662,7 @@ function animate() {
     // Move horse in its facing direction (Three.js default forward is -Z)
     horse.position.x -= Math.sin(horseYaw) * speed * delta;
     horse.position.z -= Math.cos(horseYaw) * speed * delta;
-    horse.position.x = Math.max(-PASTURE_LIMIT, Math.min(PASTURE_LIMIT, horse.position.x));
-    horse.position.z = Math.max(-PASTURE_LIMIT, Math.min(PASTURE_LIMIT, horse.position.z));
+    clampToPasture(horse.position);
     setHorseOnGround();
     horse.rotation.y = horseYaw;
 
