@@ -22,10 +22,13 @@ const HORSE_SCALE    = 1.47;   // 30% smaller than the previous 2.1 scale
 
 // Movement
 const MOVE_SPEED     = 6.5;    // m/s at full walk
+const GALLOP_SPEED   = 12.5;   // apple-powered burst speed
+const GALLOP_COST    = 5;
+const GALLOP_SECONDS = 5;
 const TURN_SPEED     = 1.8;    // rad/s lateral turning (A/D)
 const SPEED_LERP     = 0.10;   // velocity smoothing (0 = sluggish, 1 = instant)
-const PASTURE_RADIUS_X = 124;   // irregular oval rideable boundary, east/west
-const PASTURE_RADIUS_Z = 104;   // irregular oval rideable boundary, north/south
+const PASTURE_RADIUS_X = 92;    // irregular oval rideable boundary, east/west
+const PASTURE_RADIUS_Z = 76;    // irregular oval rideable boundary, north/south
 const PASTURE_MARGIN   = 8;     // keeps the horse off the tree line
 
 // Camera orbit
@@ -38,21 +41,21 @@ const CAM_SMOOTH        = 0.10;  // camera position lerp (lower = smoother lag)
 const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 
 // Pasture
-const PASTURE_SIZE = 280;
-const PASTURE_SEGMENTS = 120;
-const GRASS_CLUSTER_COUNT = 300000;
-const SINGLE_GRASS_COUNT = 480000;
+const PASTURE_SIZE = 220;
+const PASTURE_SEGMENTS = 90;
+const GRASS_CLUSTER_COUNT = 120000;
+const SINGLE_GRASS_COUNT = 180000;
 const GRASS_MIN_HEIGHT = 0.34;
 const GRASS_MAX_HEIGHT = 0.52;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const SINGLE_GRASS_GEOMETRY_MAX_HEIGHT = 1.0;
 const STREAM_WIDTH = 5.2;
-const PERIMETER_TREE_COUNT = 54;
-const PERIMETER_RAIL_COUNT = 72;
+const PERIMETER_TREE_COUNT = 32;
+const PERIMETER_RAIL_COUNT = 48;
 const GRASS_COLOR_PALETTE = [0x4f9900, 0x82c23a, 0xa5c940, 0xd7e356];
 const APPLE_COLLECT_RADIUS = 6.5;
-const ORCHARD_ROW_COUNT = 6;
-const ORCHARD_TREES_PER_ROW = 7;
+const ORCHARD_ROW_COUNT = 4;
+const ORCHARD_TREES_PER_ROW = 5;
 const TREE_MODEL_PATHS = ['./tree.glb', './tree2.glb', './tree3.glb'];
 const BUNNY_MODEL_PATH = './animated_rabbit__3d_animal_model.glb';
 const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
@@ -63,18 +66,18 @@ const SKYBOX_MODEL_PATH = './free_-_skybox_in_the_cloud.glb';
 
 const canvas = document.getElementById('canvas');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.35));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 0.95;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8ec8e8);
-scene.fog = new THREE.FogExp2(0xb8d8e8, 0.008);
+scene.fog = new THREE.FogExp2(0xb8d8e8, 0.016);
 
 const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 1200);
 
@@ -82,13 +85,16 @@ const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerH
 //  LIGHTING
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ambient = new THREE.AmbientLight(0xfff5e0, 0.9);
+const ambient = new THREE.AmbientLight(0xfff5e0, 1.35);
 scene.add(ambient);
 
-const sun = new THREE.DirectionalLight(0xffe8c0, 2.8);
+const hemi = new THREE.HemisphereLight(0xcfeeff, 0x6f8a48, 0.85);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xffe8c0, 0.55);
 sun.position.set(60, 90, 40);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.castShadow = false;
+sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.near   = 0.5;
 sun.shadow.camera.far    = 500;
 sun.shadow.camera.left   = -100;
@@ -98,7 +104,7 @@ sun.shadow.camera.bottom = -100;
 sun.shadow.bias = -0.0004;
 scene.add(sun);
 
-const fill = new THREE.DirectionalLight(0xc0d8ff, 0.55);
+const fill = new THREE.DirectionalLight(0xc0d8ff, 0.18);
 fill.position.set(-40, 25, -30);
 scene.add(fill);
 
@@ -144,6 +150,7 @@ let skyboxOffset = new THREE.Vector3();
 let horseYaw    = MODEL_ROT_Y;  // current horse facing angle (Y)
 let speed       = 0;            // current velocity (m/s, negative = backward)
 let isLocked    = false;
+let gallopUntil = 0;
 
 // Camera orbit state (relative to horse yaw)
 let camYawOffset   = 0;         // horizontal offset from behind-horse position
@@ -190,6 +197,7 @@ function loadSkybox() {
           const materials = Array.isArray(child.material) ? child.material : [child.material];
           for (const material of materials) {
             material.side = THREE.DoubleSide;
+            material.depthTest = false;
             material.depthWrite = false;
             material.fog = false;
           }
@@ -632,11 +640,11 @@ function buildPasture() {
   }
 
   for (let row = 0; row < ORCHARD_ROW_COUNT; row++) {
-    const z = (row - (ORCHARD_ROW_COUNT - 1) * 0.5) * 24;
+    const z = (row - (ORCHARD_ROW_COUNT - 1) * 0.5) * 19;
     const rowOffset = row % 2 === 0 ? -8 : 8;
     for (let col = 0; col < ORCHARD_TREES_PER_ROW; col++) {
       const seed = 2000 + row * 50 + col * 7;
-      const x = (col - (ORCHARD_TREES_PER_ROW - 1) * 0.5) * 27 + rowOffset;
+      const x = (col - (ORCHARD_TREES_PER_ROW - 1) * 0.5) * 21 + rowOffset;
       const jitterX = (seededRandom(seed) - 0.5) * 7;
       const jitterZ = (seededRandom(seed + 1) - 0.5) * 8;
       const treeX = x + jitterX;
@@ -844,6 +852,7 @@ window.addEventListener('keydown', e => {
   if (PREVENT.has(e.code)) e.preventDefault();
   if (e.code === 'Space') toggleLock();
   if (e.code === 'KeyQ' && !e.repeat) collectNearestApple();
+  if (e.code === 'KeyE' && !e.repeat) startGallop();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -883,6 +892,13 @@ function collectNearestApple() {
   nearest.collected = true;
   scene.remove(nearest.group);
   appleScore++;
+  updateAppleHud();
+}
+
+function startGallop() {
+  if (!horse || clock.elapsedTime < gallopUntil || appleScore < GALLOP_COST) return;
+  appleScore -= GALLOP_COST;
+  gallopUntil = clock.elapsedTime + GALLOP_SECONDS;
   updateAppleHud();
 }
 
@@ -1012,12 +1028,14 @@ function animate() {
     // ── WASD: horse turn + move ─────────────────────────────────────────────
     const turning = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
     const throttle = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
+    const galloping = elapsed < gallopUntil;
+    const moveSpeed = galloping ? GALLOP_SPEED : MOVE_SPEED;
 
     if (throttle !== 0) {
       horseYaw += turning * TURN_SPEED * delta;
     }
 
-    const targetSpeed = -throttle * MOVE_SPEED;
+    const targetSpeed = -throttle * moveSpeed;
     speed += (targetSpeed - speed) * SPEED_LERP;
     if (Math.abs(speed) < 0.01) speed = 0;
 
@@ -1053,7 +1071,7 @@ function animate() {
 
     // ── HUD ─────────────────────────────────────────────────────────────────
     const mph = Math.abs(Math.round(speed * 2.237));
-    statePill.textContent = Math.abs(speed) > 0.4 ? 'WALKING' : 'IDLE';
+    statePill.textContent = galloping ? 'GALLOP' : (Math.abs(speed) > 0.4 ? 'WALKING' : 'IDLE');
     speedPill.textContent = mph + ' MPH';
 
     // ── Third-person camera ─────────────────────────────────────────────────
