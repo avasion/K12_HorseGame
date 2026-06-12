@@ -3,6 +3,11 @@
   command = ""
 
 [[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
   for = "/*.glb"
   [headers.values]
     Content-Type = "model/gltf-binary"
