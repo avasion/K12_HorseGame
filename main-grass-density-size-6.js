@@ -41,15 +41,15 @@ const CAM_LOOKAT_HEIGHT = 1.6;   // look-at point height above horse base
 const PASTURE_SIZE = 280;
 const PASTURE_SEGMENTS = 120;
 const GRASS_CLUSTER_COUNT = 300000;
-const SINGLE_GRASS_COUNT = 160000;
+const SINGLE_GRASS_COUNT = 480000;
 const GRASS_MIN_HEIGHT = 0.34;
-const GRASS_MAX_HEIGHT = 0.72;
+const GRASS_MAX_HEIGHT = 0.52;
 const GRASS_GEOMETRY_MAX_HEIGHT = 1.48;
 const SINGLE_GRASS_GEOMETRY_MAX_HEIGHT = 1.0;
 const STREAM_WIDTH = 5.2;
 const PERIMETER_TREE_COUNT = 118;
 const PERIMETER_RAIL_COUNT = 72;
-const GRASS_COLOR_PALETTE = [0x1d4600, 0x4f9900, 0x82c23a, 0xd7e356, 0xa5c940];
+const GRASS_COLOR_PALETTE = [0x4f9900, 0x82c23a, 0xa5c940, 0xd7e356];
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RENDERER & SCENE
@@ -175,9 +175,14 @@ function seededRandom(seed) {
 }
 
 function getGrassColor(seedA, seedB, x, z) {
-  const fieldBand = Math.sin(x * 0.055) + Math.cos(z * 0.045) + seedB * 1.8;
-  const colorIndex = Math.abs(Math.floor((seedA + fieldBand) * GRASS_COLOR_PALETTE.length)) % GRASS_COLOR_PALETTE.length;
-  return new THREE.Color(GRASS_COLOR_PALETTE[colorIndex]);
+  const wave = Math.sin(x * 0.045) * 0.24 + Math.cos(z * 0.038) * 0.2;
+  const noise = (seedA - 0.5) * 0.22 + (seedB - 0.5) * 0.12;
+  const t = Math.max(0, Math.min(0.999, 0.5 + wave + noise));
+  const scaled = t * (GRASS_COLOR_PALETTE.length - 1);
+  const index = Math.floor(scaled);
+  const blend = scaled - index;
+  const color = new THREE.Color(GRASS_COLOR_PALETTE[index]);
+  return color.lerp(new THREE.Color(GRASS_COLOR_PALETTE[index + 1]), blend);
 }
 
 function getBoundaryScale(angle) {
